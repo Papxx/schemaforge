@@ -38,7 +38,7 @@ git clone --depth 1 https://github.com/aleksilassila/litematica-printer refs/lit
 Vorbild-Code in Meteor (gleiche Lizenz GPL-3.0, darf adaptiert werden):
 - `refs/meteor-client/src/main/java/meteordevelopment/meteorclient/systems/modules/world/HighwayBuilder.java` – Platzieren, Rotation, Slot-Wechsel, Ender-Chest-Restock, State-Machine
 - `.../modules/world/InfinityMiner.java` – Arbeiten→Lager→zurück-Loop mit Baritone
-- `.../modules/player/AutoSteal.java`, `.../modules/misc/InventoryTweaks.java` – Container-Slot-Klicks mit Delay
+- `.../modules/misc/InventoryTweaks.java` (Setting-Gruppe „Auto Steal“; eine eigene `AutoSteal.java` existiert in 26.2 nicht) – Container-Slot-Klicks mit Delay
 - `.../utils/world/BlockUtils.java`, `.../utils/player/Rotations.java`, `.../utils/player/InvUtils.java`, `.../utils/player/FindItemResult.java`
 - `.../pathing/PathManagers.java`, `.../pathing/BaritonePathManager.java` – wie Meteor Baritone kapselt
 - `refs/baritone/src/main/java/baritone/utils/schematic/litematica/LitematicaHelper.java` – zeigt, welche Litematica-Interna gebraucht werden (und warum das bricht)

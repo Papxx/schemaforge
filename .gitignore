@@ -31,3 +31,7 @@ bin/
 # fabric
 
 run/
+
+# reference sources (P0-02, not redistributed)
+
+refs/

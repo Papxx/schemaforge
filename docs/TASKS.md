@@ -13,7 +13,7 @@ Template `MeteorDevelopment/meteor-addon-template` in dieses Repo, Paket `com.ex
 - AK2 `./gradlew runClient` startet, Addon erscheint in Meteor unter Addons
 - AK3 `fabric.mod.json`: `suggests` für `litematica`, `malilib`, `baritone`; kein `depends` darauf
 
-### P0-02 · Referenzquellen klonen `todo`
+### P0-02 · Referenzquellen klonen `done`
 `refs/` anlegen, Klone laut CLAUDE.md, `refs/` in `.gitignore`.
 - AK1 Die vier in CLAUDE.md genannten Meteor-Dateien existieren lokal und wurden gelesen; Notiz mit 5 Stichpunkten „so platziert/rotiert/klickt Meteor in 26.2“ nach `docs/NOTES-meteor-api.md`
 - AK2 Aus `refs/baritone/.../LitematicaHelper.java` die Liste aller genutzten Litematica-Methoden (Klasse + Signatur) nach `docs/NOTES-litematica-api.md`
@@ -145,7 +145,7 @@ Checkpoint alle 30 s + bei Stop. `.sf start` mit vorhandenem Checkpoint fragt �
 - AK2 Gson-Datei entspricht ARCHITECTURE.md §6, `"v":1`
 
 ### P4-02 · Passives Lernen `todo`
-Listener auf Container-Screen open/close (Meteor-Event oder eigener Hook – in refs prüfen, wie `AutoSteal` den Screen erkennt); Container-Position aus letztem Rechtsklick-Ziel; Inhalt beim Schließen in Index.
+Listener auf Container-Screen open/close (Meteor-Event oder eigener Hook – Vorbild: Auto-Steal in `InventoryTweaks` erkennt den Container über `InventoryEvent` + `containerMenu.getType()`, siehe `docs/NOTES-meteor-api.md` Punkt 5); Container-Position aus letztem Rechtsklick-Ziel; Inhalt beim Schließen in Index.
 - AK1 Manuell: 3 Kisten manuell öffnen → `.sf containers` listet alle 3 mit korrekten Mengen
 - AK2 Doppelkiste → eine Position, alle 54 Slots gezählt
 - AK3 Ender-Chest → Typ `ender_chest`, positionsunabhängig
