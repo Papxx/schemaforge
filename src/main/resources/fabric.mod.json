@@ -1,24 +1,25 @@
 {
   "schemaVersion": 1,
-  "id": "addon-template",
+  "id": "schemaforge",
   "version": "${version}",
-  "name": "Addon Template",
-  "description": "An addon template for Meteor Client addons.",
+  "name": "SchemaForge",
+  "description": "Litematica printer, container restock and Baritone navigation as a Meteor Client addon.",
   "authors": [
-    "seasnail"
+    "Papxx"
   ],
   "contact": {
-    "sources": "https://github.com/MeteorDevelopment/meteor-addon-template"
+    "sources": "https://github.com/Papxx/schemaforge"
   },
-  "icon": "assets/template/icon.png",
+  "license": "GPL-3.0-only",
+  "icon": "assets/schemaforge/icon.png",
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "com.example.addon.AddonTemplate"
+      "dev.tore.schemaforge.SchemaForgeAddon"
     ]
   },
   "mixins": [
-    "addon-template.mixins.json"
+    "schemaforge.mixins.json"
   ],
   "custom": {
     "meteor-client:color": "225,25,25",
@@ -32,5 +33,10 @@
     "java": ">=${jdk_version}",
     "minecraft": "${minecraft_version}",
     "meteor-client": "*"
+  },
+  "suggests": {
+    "litematica": "*",
+    "malilib": "*",
+    "baritone": "*"
   }
 }
