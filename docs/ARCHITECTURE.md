@@ -9,6 +9,8 @@ dev.tore.schemaforge
 ├── SchemaForgeAddon                 MeteorAddon-Einstieg; registriert Module, Commands, HUD; hält LOG
 ├── compat/
 │   ├── VersionProbe                 sammelt Versionen + Signatur-Checks → ProbeReport
+│   ├── ProbeReport                  Ergebnis von VersionProbe, Abschnitte je Mod (Felder legt P0-05 fest)
+│   ├── EasyPlaceProtocol            enum NONE / V2_CARPET / V3_SERVUX
 │   ├── LitematicaAdapter            einzige Klasse mit fi.dy.masa.*-Zugriff (MethodHandles)
 │   └── BaritoneBridge               einzige Klasse mit baritone.api.*-Zugriff
 ├── core/
@@ -22,6 +24,7 @@ dev.tore.schemaforge
 │   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
+│   ├── ContainerType                enum CHEST / BARREL / SHULKER / ENDER_CHEST (WorldView, ContainerIndex)
 │   └── view/  WorldView, InventoryView, PlayerView   (kleine Interfaces für Testbarkeit)
 ├── modules/
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
@@ -142,7 +145,7 @@ public final class ContainerIndex {
 }
 
 public final class RestockProcess {
-    enum State { IDLE, PICK_SOURCE, TRAVEL, OPEN, WAIT_SCREEN, TAKE, CLOSE, RETURN, FAILED }
+    public enum State { IDLE, PICK_SOURCE, TRAVEL, OPEN, WAIT_SCREEN, TAKE, CLOSE, RETURN, FAILED }   // public: state() ist public (P0-04)
     public void start(Map<Item,Integer> demand);
     public void tick();
     public State state();

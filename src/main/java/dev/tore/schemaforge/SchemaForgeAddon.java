@@ -1,22 +1,18 @@
 package dev.tore.schemaforge;
 
 import com.mojang.logging.LogUtils;
-import dev.tore.schemaforge.commands.CommandExample;
-import dev.tore.schemaforge.hud.HudExample;
-import dev.tore.schemaforge.modules.ModuleExample;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
-import meteordevelopment.meteorclient.commands.Commands;
-import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import org.slf4j.Logger;
 
 /**
- * Addon entry point. Registers modules, commands and HUD elements.
- * The example classes still registered here come from the Meteor addon template
- * and are replaced by the shells from docs/ARCHITECTURE.md in P0-04.
+ * Addon entry point. Holds the shared logger, module category and HUD group.
+ * Modules, commands and HUD elements are registered by the tickets that implement them
+ * (SfCommand: P0-05, SchemaPrinter: P2-07, BuildResume: P3-04, BuildProgressHud: P3-05,
+ * ContainerRestock: P4-04), so no unfinished shell is reachable in-game.
  */
 public class SchemaForgeAddon extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
@@ -26,15 +22,6 @@ public class SchemaForgeAddon extends MeteorAddon {
     @Override
     public void onInitialize() {
         LOG.info("Initializing SchemaForge");
-
-        // Modules
-        Modules.get().add(new ModuleExample());
-
-        // Commands
-        Commands.add(new CommandExample());
-
-        // HUD
-        Hud.get().register(HudExample.INFO);
     }
 
     @Override

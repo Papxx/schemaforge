@@ -25,7 +25,7 @@ Modrinth-Maven ergänzen; Litematica + MaLiLib 26.2 als `compileOnly` (Loom 1.17
 - AK3 Leerer JUnit-Test läuft mit `./gradlew test`
 - AK4 Genaue Litematica-/MaLiLib-Versionsnummern in `docs/PLAN.md` Abschnitt 2.1 nachgetragen
 
-### P0-04 · Skeleton + Logger `todo`
+### P0-04 · Skeleton + Logger `done`
 Alle Pakete/Klassen aus ARCHITECTURE.md als leere Hüllen (Signaturen, `throw new UnsupportedOperationException("P?-??")` im Body). `SchemaForgeAddon.LOG`.
 - AK1 Build grün, keine Warnungen aus eigenem Code
 - AK2 Jede Hülle referenziert im Kommentar das Ticket, das sie füllt
@@ -187,3 +187,4 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)
+- `buildOnlySelection` / `LitematicaAdapter.selectionBounds()`: steht in ARCHITECTURE.md §4 und §7, hat aber kein Ticket. Die Hülle aus P0-04 wirft `UnsupportedOperationException("Backlog: buildOnlySelection")`
