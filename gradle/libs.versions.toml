@@ -13,6 +13,14 @@ loom = "1.17-SNAPSHOT"
 meteor = "26.2-SNAPSHOT"
 
 # Mods
+# Baritone: same version as Meteor's gradle/libs.versions.toml (https://github.com/MeteorDevelopment/baritone)
+baritone = "26.1-SNAPSHOT"
+# Litematica / MaLiLib for MC 26.2 (https://modrinth.com/mod/litematica, https://modrinth.com/mod/malilib)
+litematica = "0.28.8"
+malilib = "0.29.6"
+
+# Testing
+junit = "5.14.4"
 
 [libraries]
 # Fabric base
@@ -23,6 +31,14 @@ fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-l
 meteor-client = { module = "meteordevelopment:meteor-client", version.ref = "meteor" }
 
 # Mods
+baritone = { module = "meteordevelopment:baritone", version.ref = "baritone" }
+litematica = { module = "maven.modrinth:litematica", version.ref = "litematica" }
+malilib = { module = "maven.modrinth:malilib", version.ref = "malilib" }
+
+# Testing
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
 [plugins]
 fabric-loom = { id = "net.fabricmc.fabric-loom", version.ref = "loom" }

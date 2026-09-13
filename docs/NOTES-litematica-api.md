@@ -4,7 +4,7 @@ Quelle: `refs/baritone` @ `9fadf7c` (2026-08-31, Branch `26.2`).
 - Aufrufe: `src/main/java/baritone/utils/schematic/litematica/LitematicaHelper.java`
 - Signaturen: Baritones Compile-Stubs unter `src/schematica_api/java/fi/dy/masa/litematica/` (Methoden-Bodies werfen `LinkageError`)
 
-**Stand der Prüfung:** Die Liste zeigt, *wogegen Baritone kompiliert*. Gegen das echte Litematica-26.2-Jar ist sie noch **nicht** abgeglichen. Das passiert in P0-03 (Jar als `modCompileOnly`) und P0-05 (`VersionProbe` löst jede Zeile als `MethodHandle` auf).
+**Stand der Prüfung:** Die Liste zeigt, *wogegen Baritone kompiliert*. Gegen das echte Litematica-26.2-Jar ist sie noch **nicht** abgeglichen. Das passiert in P0-03 (Jar als `compileOnly`) und P0-05 (`VersionProbe` löst jede Zeile als `MethodHandle` auf).
 
 Paket-Präfix `fi.dy.masa.litematica.` unten weggelassen. MC-Typen (Mojmap): `net.minecraft.core.BlockPos`, `net.minecraft.world.level.block.Rotation`, `net.minecraft.world.level.block.Mirror`, `net.minecraft.world.level.Level`. `ImmutableMap` ist `com.google.common.collect.ImmutableMap`.
 

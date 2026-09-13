@@ -42,7 +42,10 @@ Stand der Recherche: 13.09.2026 (Europe/Berlin). Arbeitstitel frei änderbar.
 | Baritone (Meteor-Fork, gebündelt) | **26.1-SNAPSHOT** (!) | Meteor `libs.versions.toml` (master) |
 | Baritone upstream | v1.19.0 für 26.2, Release 31.08.2026 | github.com/cabaletta/baritone/releases |
 | Litematica Printer (aleksilassila) | 26.2-3.2.2, veröffentlicht 17.06.2026 | Modrinth |
-| Litematica | 26.2-Build vorhanden, genaue Nummer **noch prüfen** (Modrinth/CurseForge, nicht litematica.com) | – |
+| Litematica | **0.28.8** (Datei `litematica-fabric-26.2-0.28.8.jar`, Modrinth-Version `CuniXtbo`, 05.09.2026). Das Jar verlangt `minecraft ~26.2-` und `malilib >=0.29.5- <0.30.0-` | Modrinth-API, `fabric.mod.json` im Jar (P0-03) |
+| MaLiLib | **0.29.6** (Datei `malilib-fabric-26.2-0.29.6.jar`, Modrinth-Version `KvjmGjAV`, 04.09.2026). Das Jar verlangt `minecraft ~26.2-`, `fabric-networking-api-v1 >=6.3.3` und `fabric-resource-loader-v1`, **zur Laufzeit also Fabric API** | Modrinth-API, `fabric.mod.json` im Jar (P0-03) |
+| Gradle-Einbindung | `compileOnly` über Modrinth-Maven (`maven.modrinth:litematica` / `:malilib`). **`modCompileOnly` gibt es in Loom 1.17 nicht** (unobfuskiertes MC 26.x), auch Meteor nutzt `compileOnly` | `./gradlew dependencies` (P0-03) |
+| JUnit | 5.14.4 (letzte 5.x; 6.1.3 existiert, das Ticket verlangt JUnit 5) | Maven Central (P0-03) |
 | Mappings | Mojmap (Baritone-Quelle nutzt `net.minecraft.core.BlockPos`) | cabaletta/baritone Branch 26.2 |
 
 **Korrektur zu „neueste Baritone-Version“:** Die „neueste“ Baritone, die tatsächlich in Meteor steckt, ist nicht die neueste upstream. Das Addon muss deshalb ausschließlich gegen `baritone.api.*` programmieren und zur Laufzeit prüfen, welche Baritone-Klassen da sind – nie gegen `baritone.*`-Interna.
@@ -120,7 +123,7 @@ com.tore.schemaforge
 ### 3.3 Warum Reflection statt `modImplementation "litematica"`?
 
 - Baritones harte Kompilierung ist exakt der Grund für F1. Eine Reflection-Schicht mit **Signaturprüfung beim Start** liefert eine klare Chat-Meldung („Litematica 0.xx nicht unterstützt, Methode Y fehlt“) statt Crash.
-- Litematica als `modCompileOnly` (Modrinth-Maven `maven.modrinth:litematica`) ist trotzdem sinnvoll für Typsicherheit der bekannten Klassen; die Reflection sichert nur die Stellen ab, die sich erfahrungsgemäß ändern (`getBlockState`, `getAllSchematicsPlacements`, `getEnabledRelativeSubRegionPlacements`).
+- Litematica als `compileOnly` (Modrinth-Maven `maven.modrinth:litematica`) ist trotzdem sinnvoll für Typsicherheit der bekannten Klassen; die Reflection sichert nur die Stellen ab, die sich erfahrungsgemäß ändern (`getBlockState`, `getAllSchematicsPlacements`, `getEnabledRelativeSubRegionPlacements`).
 
 ### 3.4 Restock aus Containern („Container-Sourcing“)
 
@@ -184,7 +187,7 @@ Mögliche Kandidaten, jeder einzeln zu begründen:
 
 ### Phase 0 – Setup (2–3 Tage)
 - Template klonen (`git clone --depth 1 https://github.com/MeteorDevelopment/meteor-addon-template`), Paket/ID umbenennen, `fabric.mod.json` mit `suggests: litematica, baritone` (nicht `depends`).
-- `libs.versions.toml`: Litematica + MaLiLib als `modCompileOnly` über Modrinth-Maven ergänzen; Baritone-API aus `maven.meteordev.org` (gleiche Koordinate wie Meteor).
+- `libs.versions.toml`: Litematica + MaLiLib als `compileOnly` über Modrinth-Maven ergänzen; Baritone-API aus `maven.meteordev.org` (gleiche Koordinate wie Meteor).
 - IntelliJ-Run-Config „Minecraft Client“ starten, leeres Modul sichtbar → Meilenstein M0.
 - `.sf doctor` implementieren (Versionen ausgeben). Das ist zugleich der Smoke-Test für die Reflection-Schicht.
 

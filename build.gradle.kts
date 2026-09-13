@@ -20,6 +20,20 @@ repositories {
         name = "meteor-maven-snapshots"
         url = uri("https://maven.meteordev.org/snapshots")
     }
+    mavenCentral()
+
+    // Litematica and MaLiLib are only published on Modrinth
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "modrinth"
+                url = uri("https://api.modrinth.com/maven")
+            }
+        }
+        filter {
+            includeGroup("maven.modrinth")
+        }
+    }
 }
 
 dependencies {
@@ -29,6 +43,17 @@ dependencies {
 
     // Meteor
     implementation(libs.meteor.client)
+
+    // Soft dependencies: compile against them, never bundle them (fabric.mod.json "suggests").
+    // Loom 1.17 has no mod* configurations for unobfuscated Minecraft; Meteor uses compileOnly as well.
+    compileOnly(libs.baritone)
+    compileOnly(libs.litematica) { isTransitive = false }
+    compileOnly(libs.malilib) { isTransitive = false }
+
+    // Tests
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 java {
@@ -78,6 +103,10 @@ tasks {
         from("LICENSE") {
             rename { "${it}_$archivesBaseName" }
         }
+    }
+
+    test {
+        useJUnitPlatform()
     }
 
     withType<JavaCompile>().configureEach {

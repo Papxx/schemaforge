@@ -14,9 +14,9 @@ import meteordevelopment.meteorclient.systems.modules.Modules;
 import org.slf4j.Logger;
 
 /**
- * Einstiegspunkt des Addons. Registriert Module, Commands und HUD-Elemente.
- * Die hier noch registrierten Example-Klassen stammen aus dem Meteor-Addon-Template
- * und werden in P0-04 durch die Huellen aus docs/ARCHITECTURE.md ersetzt.
+ * Addon entry point. Registers modules, commands and HUD elements.
+ * The example classes still registered here come from the Meteor addon template
+ * and are replaced by the shells from docs/ARCHITECTURE.md in P0-04.
  */
 public class SchemaForgeAddon extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();

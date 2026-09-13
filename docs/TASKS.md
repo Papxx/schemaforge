@@ -18,8 +18,8 @@ Template `MeteorDevelopment/meteor-addon-template` in dieses Repo, Paket `com.ex
 - AK1 Die vier in CLAUDE.md genannten Meteor-Dateien existieren lokal und wurden gelesen; Notiz mit 5 Stichpunkten „so platziert/rotiert/klickt Meteor in 26.2“ nach `docs/NOTES-meteor-api.md`
 - AK2 Aus `refs/baritone/.../LitematicaHelper.java` die Liste aller genutzten Litematica-Methoden (Klasse + Signatur) nach `docs/NOTES-litematica-api.md`
 
-### P0-03 · Gradle-Abhängigkeiten `todo`
-Modrinth-Maven ergänzen; Litematica + MaLiLib 26.2 als `modCompileOnly`; Baritone-API wie Meteor (`meteordevelopment:baritone`, gleiche Version wie in Meteors `libs.versions.toml`); JUnit 5.
+### P0-03 · Gradle-Abhängigkeiten `done`
+Modrinth-Maven ergänzen; Litematica + MaLiLib 26.2 als `compileOnly` (Loom 1.17 hat kein `modCompileOnly`); Baritone-API wie Meteor (`meteordevelopment:baritone`, gleiche Version wie in Meteors `libs.versions.toml`); JUnit 5.
 - AK1 Build grün, `import fi.dy.masa.litematica.data.DataManager` kompiliert in `compat/`
 - AK2 `import baritone.api.BaritoneAPI` kompiliert
 - AK3 Leerer JUnit-Test läuft mit `./gradlew test`
