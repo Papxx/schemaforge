@@ -4,7 +4,9 @@ Quelle: `refs/baritone` @ `9fadf7c` (2026-08-31, Branch `26.2`).
 - Aufrufe: `src/main/java/baritone/utils/schematic/litematica/LitematicaHelper.java`
 - Signaturen: Baritones Compile-Stubs unter `src/schematica_api/java/fi/dy/masa/litematica/` (Methoden-Bodies werfen `LinkageError`)
 
-**Stand der Prüfung:** Die Liste zeigt, *wogegen Baritone kompiliert*. Gegen das echte Litematica-26.2-Jar ist sie noch **nicht** abgeglichen. Das passiert in P0-03 (Jar als `compileOnly`) und P0-05 (`VersionProbe` löst jede Zeile als `MethodHandle` auf).
+**Stand der Prüfung:** Die Liste zeigt, *wogegen Baritone kompiliert*. In P0-05 per `javap` gegen das echte Jar `litematica-0.28.8` abgeglichen: alle Zeilen 2–14 existieren mit exakt diesen Signaturen (Zeile 3 heißt dort `getAllSchematicsPlacements`), `WorldSchematic extends Level` stimmt. Zur Laufzeit prüft `.sf doctor` jede Zeile erneut als `MethodHandle`.
+
+EasyPlace (P0-05): `config.Configs$Generic.EASY_PLACE_PROTOCOL` ist eine MaLiLib-`ConfigOptionList` mit den Werten `AUTO, V3, V2, SLAB_ONLY, NONE` (`util.EasyPlaceProtocol`). `static util.PlacementHandler.getEffectiveProtocolVersion()` löst `AUTO` auf: Singleplayer oder Servux → `V3`, Carpet → `V2`, sonst `SLAB_ONLY`.
 
 Paket-Präfix `fi.dy.masa.litematica.` unten weggelassen. MC-Typen (Mojmap): `net.minecraft.core.BlockPos`, `net.minecraft.world.level.block.Rotation`, `net.minecraft.world.level.block.Mirror`, `net.minecraft.world.level.Level`. `ImmutableMap` ist `com.google.common.collect.ImmutableMap`.
 

@@ -13,8 +13,8 @@ loom = "1.17-SNAPSHOT"
 meteor = "26.2-SNAPSHOT"
 
 # Mods
-# Baritone: same version as Meteor's gradle/libs.versions.toml (https://github.com/MeteorDevelopment/baritone)
-baritone = "26.1-SNAPSHOT"
+# Baritone: Meteor fork for MC 26.2 (Meteor itself still pins 26.1-SNAPSHOT, which does not load on 26.2) (https://github.com/MeteorDevelopment/baritone)
+baritone = "26.2-SNAPSHOT"
 # Litematica / MaLiLib for MC 26.2 (https://modrinth.com/mod/litematica, https://modrinth.com/mod/malilib)
 litematica = "0.28.8"
 malilib = "0.29.6"

@@ -9,7 +9,8 @@ dev.tore.schemaforge
 ├── SchemaForgeAddon                 MeteorAddon-Einstieg; registriert Module, Commands, HUD; hält LOG
 ├── compat/
 │   ├── VersionProbe                 sammelt Versionen + Signatur-Checks → ProbeReport
-│   ├── ProbeReport                  Ergebnis von VersionProbe, Abschnitte je Mod (Felder legt P0-05 fest)
+│   ├── ProbeReport                  Ergebnis von VersionProbe, Abschnitte je Mod (siehe §4)
+│   ├── SignatureCheck               löst Methoden per Name/Typ-Strings als MethodHandle auf (ohne Klassen-Import)
 │   ├── EasyPlaceProtocol            enum NONE / V2_CARPET / V3_SERVUX
 │   ├── LitematicaAdapter            einzige Klasse mit fi.dy.masa.*-Zugriff (MethodHandles)
 │   └── BaritoneBridge               einzige Klasse mit baritone.api.*-Zugriff
@@ -30,7 +31,7 @@ dev.tore.schemaforge
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
 │   ├── ContainerRestock             Restock-Settings
 │   └── BuildResume                  Checkpoint-Persistenz
-├── commands/  SfCommand             .sf <sub> – Sub-Commands als eigene Klassen
+├── commands/  SfCommand             .sf <sub> – Sub-Commands als eigene Klassen (DoctorCommand, …)
 ├── hud/       BuildProgressHud
 └── mixins/                          leer bis ein Ticket einen Mixin verlangt
 ```
@@ -99,6 +100,22 @@ public interface PlayerView {
 Produktiv-Implementierungen liegen in `compat/` bzw. `modules/` (z. B. `McWorldView`), Tests nutzen Fakes.
 
 ## 4. Schnittstellen der Bausteine
+
+```java
+// P0-05. Reine Daten, keine Minecraft-Abhängigkeit; Chat-Darstellung in commands/DoctorCommand.
+public record ProbeReport(List<Section> sections) {
+    public enum Status { OK, MISSING, FAIL }          // grün / gelb (Soft-Dependency fehlt) / rot (Signatur bricht)
+    public record Line(String label, String value, Status status) {}
+    public record Section(String title, List<Line> lines) { public Status status(); }   // schlechtester Line-Status
+    public Status status();
+}
+
+public final class VersionProbe {
+    public static ProbeReport run();   // Abschnitte: Minecraft, Meteor, Server, Baritone, MaLiLib, Litematica
+}
+
+// Mod-IDs (FabricLoader): minecraft, meteor-client, baritone-meteor (Meteor-Fork) bzw. baritone, malilib, litematica
+```
 
 ```java
 public final class LitematicaAdapter {

@@ -21,7 +21,7 @@ Dieses Dokument ist die Arbeitsanweisung für Claude Code. Lies es vollständig,
 | Loom | 1.17-SNAPSHOT | ebd. |
 | Mappings | **Mojmap** (nicht Yarn!) | Meteor 26.x |
 | Litematica / MaLiLib | 26.2, `compileOnly` (Loom 1.17 hat kein `modCompileOnly`) | Modrinth-Maven |
-| Baritone | `baritone.api` aus Meteor-Fork (aktuell 26.1-SNAPSHOT gepinnt) | `maven.meteordev.org` |
+| Baritone | `baritone.api` aus Meteor-Fork (26.2-SNAPSHOT; Meteor selbst pinnt noch 26.1-SNAPSHOT, das unter MC 26.2 nicht lädt – P0-05) | `maven.meteordev.org` |
 
 Der Stack ist zu neu für Trainingswissen. **Rate niemals API-Namen.** Wenn du eine Klasse oder Methode aus Minecraft, Meteor, Baritone oder Litematica brauchst, schlage sie in `refs/` nach (siehe unten) oder im dekompilierten Loom-Output unter `.gradle/loom-cache` bzw. dem IDE-Sourcejar.
 

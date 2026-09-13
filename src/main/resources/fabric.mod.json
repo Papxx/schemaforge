@@ -37,6 +37,7 @@
   "suggests": {
     "litematica": "*",
     "malilib": "*",
-    "baritone": "*"
+    "baritone": "*",
+    "baritone-meteor": "*"
   }
 }

@@ -30,11 +30,16 @@ Alle Pakete/Klassen aus ARCHITECTURE.md als leere Hüllen (Signaturen, `throw ne
 - AK1 Build grün, keine Warnungen aus eigenem Code
 - AK2 Jede Hülle referenziert im Kommentar das Ticket, das sie füllt
 
-### P0-05 · `.sf doctor` + VersionProbe `todo`
+### P0-05 · `.sf doctor` + VersionProbe `done`
 `VersionProbe` sammelt: MC-, Meteor-, Baritone-, Litematica-, MaLiLib-Version (via FabricLoader), Server-Brand, EasyPlace-Protokoll (Litematica-Config lesen), und pro Litematica-Methode aus `docs/NOTES-litematica-api.md` ob `MethodHandle` auflösbar. Ausgabe im Chat als Tabelle.
 - AK1 Manuell: mit allen Mods → alle Zeilen grün
 - AK2 Manuell: Litematica entfernt → Addon startet, `.sf doctor` meldet „Litematica missing“, kein Crash
 - AK3 Manuell: Baritone entfernt → analog
+
+Stand 2026-09-13: Code fertig (`VersionProbe`, `ProbeReport`, `SignatureCheck`, `LitematicaAdapter.probe()/detectedProtocol()`, `DoctorCommand`), Build + 11 Tests grün. Alle 13 Methoden aus NOTES-litematica-api.md per `javap` gegen das echte Litematica-0.28.8-Jar bestätigt. Auf Anweisung des Nutzers `done` gesetzt; AK1–3 wurden **nicht** in-game ausgeführt (siehe TESTLOG):
+- Dev-Client mit Litematica 0.28.8 + MaLiLib 0.29.6 crasht direkt nach dem Start im Rendering (`IllegalStateException: Missing uniform Globals (should be UNIFORM_BUFFER)` in `TextureAtlas.cycleAnimationFrames`, AMD RX 9060 XT). Ohne diese beiden Mods kein Crash; SchemaForge ist zu dem Zeitpunkt schon initialisiert. Nicht Teil von P0-05 → Backlog.
+- Baritone `26.1-SNAPSHOT` lädt unter MC 26.2 nicht (Fabric: „requires minecraft 26.1.x“) → in `libs.versions.toml` auf `26.2-SNAPSHOT` angehoben (Nutzerentscheidung); dasselbe Jar liegt in `run/mods/`. Ein Release `26.2` steht in Meteors Maven-Metadaten, hat aber keine Dateien (404).
+- Meteors Baritone-Fork hat die Mod-ID `baritone-meteor`; `fabric.mod.json` `suggests` darum ergänzt.
 
 ---
 
@@ -183,6 +188,8 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 ---
 
 ## Backlog (nur sammeln)
+- Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6: `Missing uniform Globals (should be UNIFORM_BUFFER)` beim Textur-Atlas-Tick (siehe P0-05-Notiz); klären, ob Treiber-, MaLiLib- oder Meteor-Kombination
+- P0-05 AK1–3 in-game nachholen, sobald der Litematica-Render-Crash gelöst ist (oder in einer Nicht-Dev-Instanz)
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
