@@ -45,9 +45,11 @@ Stand 2026-09-13: Code fertig (`VersionProbe`, `ProbeReport`, `SignatureCheck`, 
 
 ## Phase 1 – Adapter + Planner
 
-### P1-01 · `LitematicaAdapter.placementNames()` + `isPresent()` `todo`
+### P1-01 · `LitematicaAdapter.placementNames()` + `isPresent()` `in_progress`
 - AK1 Manuell: zwei geladene Placements → beide Namen im `.sf preview`-Dropdown/Chat
 - AK2 Ohne Litematica → leere Liste, keine Exception
+
+Stand 2026-09-13: `isPresent()` (Hauptklasse ladbar) und `placementNames()` (Handles einmalig per Holder aufgelöst, beide Methodennamen für `getAll…Placements`, bei Inkompatibilität einmal Log-Warnung + leere Liste, nie Exception). AK2 per `LitematicaAdapterTest` erfüllt (Litematica ist `compileOnly`, fehlt also im Test-Runtime). AK1 **offen**: `.sf preview` kommt erst mit P1-05, und der Dev-Client crasht mit Litematica (siehe P0-05).
 
 ### P1-02 · `LitematicaAdapter.snapshot()` `todo`
 Alle aktivierten Sub-Regionen, Mirror/Rotation von Placement **und** Sub-Region anwenden (Transformationslogik wie in `LitematicaHelper.transform`, eigenständig implementiert), Blöcke via MethodHandle aus der Schematic-World lesen, `materialTotals` berechnen.

@@ -37,13 +37,17 @@ public final class LitematicaAdapter {
     private static final String MIRROR = "net.minecraft.world.level.block.Mirror";
     private static final String LEVEL = "net.minecraft.world.level.Level";
 
+    private static final Spec GET_PLACEMENT_MANAGER = Spec.staticMethod(DATA_MANAGER, PLACEMENT_MANAGER, "getSchematicPlacementManager");
+    // Litematica has switched between both names (NOTES-litematica-api.md row 3, defect F1).
+    private static final Spec GET_ALL_PLACEMENTS = new Spec(PLACEMENT_MANAGER, false, "java.util.List",
+        List.of("getAllSchematicsPlacements", "getAllSchematicPlacements"), List.of());
+    private static final Spec GET_PLACEMENT_NAME = Spec.virtual(PLACEMENT, "java.lang.String", "getName");
+
     /** Every method from docs/NOTES-litematica-api.md, in the order of that table (rows 2–14). */
     private static final List<Spec> BARITONE_SIGNATURES = List.of(
-        Spec.staticMethod(DATA_MANAGER, PLACEMENT_MANAGER, "getSchematicPlacementManager"),
-        // Litematica has switched between both names (NOTES-litematica-api.md row 3, defect F1).
-        new Spec(PLACEMENT_MANAGER, false, "java.util.List",
-            List.of("getAllSchematicsPlacements", "getAllSchematicPlacements"), List.of()),
-        Spec.virtual(PLACEMENT, "java.lang.String", "getName"),
+        GET_PLACEMENT_MANAGER,
+        GET_ALL_PLACEMENTS,
+        GET_PLACEMENT_NAME,
         Spec.virtual(PLACEMENT, BLOCK_POS, "getOrigin"),
         Spec.virtual(PLACEMENT, ROTATION, "getRotation"),
         Spec.virtual(PLACEMENT, MIRROR, "getMirror"),
@@ -63,9 +67,9 @@ public final class LitematicaAdapter {
     private LitematicaAdapter() {
     }
 
-    /** Implemented in P1-01. */
+    /** True if Litematica is installed (its main class loads). Says nothing about signature compatibility, see {@link #probe()}. */
     public static boolean isPresent() {
-        throw new UnsupportedOperationException("P1-01");
+        return Resolved.PRESENT;
     }
 
     /**
@@ -75,7 +79,7 @@ public final class LitematicaAdapter {
      */
     public static ProbeReport.Section probe() {
         ClassLoader loader = loader();
-        if (SignatureCheck.load(loader, MAIN_CLASS).isEmpty()) {
+        if (!isPresent()) {
             return new ProbeReport.Section("Litematica", List.of(Line.missing("Litematica", "missing")));
         }
 
@@ -88,9 +92,31 @@ public final class LitematicaAdapter {
         return new ProbeReport.Section("Litematica", lines);
     }
 
-    /** All loaded placements. Implemented in P1-01. */
+    /**
+     * Names of all loaded placements in Litematica's order; names may repeat.
+     * Empty if Litematica is missing, incompatible or not ready yet; never throws (P1-01).
+     */
     public static List<String> placementNames() {
-        throw new UnsupportedOperationException("P1-01");
+        Optional<PlacementHandles> handles = Resolved.PLACEMENTS;
+        if (handles.isEmpty()) return List.of();
+        try {
+            Object manager = handles.get().getManager().invoke();
+            if (manager == null) return List.of();
+            List<?> placements = (List<?>) handles.get().getAll().invoke(manager);
+            if (placements == null) return List.of();
+
+            List<String> names = new ArrayList<>(placements.size());
+            for (Object placement : placements) {
+                String name = (String) handles.get().getName().invoke(placement);
+                if (name != null) names.add(name);
+            }
+            return List.copyOf(names);
+        } catch (VirtualMachineError e) {
+            throw e;
+        } catch (Throwable t) {
+            SchemaForgeAddon.LOG.warn("Reading Litematica placements failed", t);
+            return List.of();
+        }
     }
 
     /** Sub-regions resolved, mirror/rotation applied. Implemented in P1-02. */
@@ -176,5 +202,33 @@ public final class LitematicaAdapter {
 
     private static ClassLoader loader() {
         return LitematicaAdapter.class.getClassLoader();
+    }
+
+    private record PlacementHandles(MethodHandle getManager, MethodHandle getAll, MethodHandle getName) {
+    }
+
+    /** Resolved once on first use (holder idiom); signature problems are logged a single time. */
+    private static final class Resolved {
+        static final boolean PRESENT = SignatureCheck.load(loader(), MAIN_CLASS).isPresent();
+        static final Optional<PlacementHandles> PLACEMENTS = resolvePlacements();
+
+        private static Optional<PlacementHandles> resolvePlacements() {
+            if (!PRESENT) return Optional.empty();
+            List<Result> results = List.of(
+                SignatureCheck.resolve(loader(), GET_PLACEMENT_MANAGER),
+                SignatureCheck.resolve(loader(), GET_ALL_PLACEMENTS),
+                SignatureCheck.resolve(loader(), GET_PLACEMENT_NAME)
+            );
+            List<String> problems = results.stream().filter(r -> !r.isFound()).map(Result::problem).toList();
+            if (!problems.isEmpty()) {
+                SchemaForgeAddon.LOG.warn("Litematica is installed but incompatible, placements unavailable: {}", problems);
+                return Optional.empty();
+            }
+            return Optional.of(new PlacementHandles(
+                results.get(0).handle().orElseThrow(),
+                results.get(1).handle().orElseThrow(),
+                results.get(2).handle().orElseThrow()
+            ));
+        }
     }
 }
