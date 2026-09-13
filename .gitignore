@@ -35,3 +35,7 @@ run/
 # reference sources (P0-02, not redistributed)
 
 refs/
+
+# graphify knowledge graph output (local only)
+
+graphify-out/
