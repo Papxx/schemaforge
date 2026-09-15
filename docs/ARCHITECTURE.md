@@ -28,6 +28,7 @@ dev.tore.schemaforge
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
 │   ├── ContainerType                enum CHEST / BARREL / SHULKER / ENDER_CHEST (WorldView, ContainerIndex)
+│   ├── SkipReason                   Grund eines SKIP-Tasks (P1-03)
 │   └── view/  WorldView, InventoryView, PlayerView   (kleine Interfaces für Testbarkeit)
 ├── modules/
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
@@ -61,7 +62,13 @@ public final class MaterialRules {
 
 public enum TaskKind { PLACE, BREAK, FLUID, SKIP }
 
-public record BlockTask(BlockPos pos, BlockState target, BlockState current, TaskKind kind, int priority) {}
+// P1-03: Grund eines SKIP-Tasks; NONE bei allen anderen Arten.
+public enum SkipReason { NONE, CHUNK_NOT_LOADED, NEVER_PLACE, WORLD_FILTER, MISMATCH_ADDITIVE_ONLY }
+
+// priority: höher = früher. BREAK 400 > voller Block 300 > sonstiger Block 200 > abhängiger Block 100 > FLUID 50 > SKIP 0
+// (Konstanten in WorkPlanner). Abhängig = braucht Träger: Fackel, Knopf/Hebel, Schiene, Teppich, Tür, Schild, Banner,
+// Leiter, Ranke, Druckplatte, Redstone, Repeater/Comparator, Pflanzen, obere Stufe ohne Nachbar oben/seitlich.
+public record BlockTask(BlockPos pos, BlockState target, BlockState current, TaskKind kind, int priority, SkipReason skipReason) {}
 
 // Cluster = räumlich zusammenhängende Task-Gruppe, Anlaufpunkt für Baritone.
 public record Cluster(int index, BlockPos center, List<BlockTask> tasks) {}
@@ -160,7 +167,17 @@ public final class ActionBudget {
 
 public final class WorkPlanner {
     public WorkPlanner(PlanConfig cfg);
-    public List<Cluster> plan(SchematicSnapshot snap, WorldView world);
+    public List<Cluster> plan(SchematicSnapshot snap, WorldView world, BlockPos start); // start = Spielerposition (Nearest-Neighbor)
+    // P1-03 Regeln, in dieser Reihenfolge je Position:
+    //  „Luft“ = Luft, Block aus treatAsAir oder fließende Flüssigkeit (gilt für Ziel und Welt)
+    //  Ziel Luft + ignoreAir → kein Task · Chunk nicht geladen → SKIP (current = VOID_AIR) · Ziel in neverPlace → SKIP
+    //  Welt passt (gleicher Block oder Ersatz aus substitutes, Properties bis auf ignoreProperties gleich) → kein Task
+    //  Welt in skipIfWorldIs → SKIP · Welt Luft/treatAsAir/ersetzbar → PLACE bzw. FLUID (Wasser-/Lava-Quelle)
+    //  sonst falscher Block → additiveOnly ? SKIP : BREAK
+    // Cluster = Würfel clusterSize ab snap.min; center = gerundeter Mittelwert der Task-Positionen; leere Cluster entfallen.
+    // Ein Cluster kann nur SKIP-Tasks enthalten (z. B. „mismatched“) – der Navigator (P3-02) muss solche nicht anlaufen.
+    // Cluster-Reihenfolge: Würfel-Schicht entlang layerAxis/layerAscending, darin Nearest-Neighbor ab start.
+    // Task-Reihenfolge im Cluster: priority absteigend, dann Schicht, dann Nearest-Neighbor (Cursor läuft über alle Cluster weiter).
     public List<BlockTask> refresh(Cluster c, WorldView world);      // Ist-Zustand neu einlesen
 }
 

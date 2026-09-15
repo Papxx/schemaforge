@@ -64,13 +64,16 @@ Stand 2026-09-15: `compat/PlacementTransform` (Mirror/Rotation, Sub-Region-Box),
 - AK1 erfüllt: `PlacementTransformTest` (12er-Tabelle + Box-Fälle). Zusätzlich einmalig per Reflection gegen Litematica-0.28.8-`PositionUtils` abgeglichen: 3084 Fälle, 0 Abweichungen (nicht Teil der Test-Suite, weil Litematica im Test-Runtime fehlen muss).
 - AK2–AK4 **nicht** in-game geprüft: Test-Schematic (P1-04) fehlt noch, `.sf preview` (P1-05) auch, und der Dev-Client crasht mit Litematica (siehe P0-05). `MaterialRulesTest` deckt die Blockklassen der Test-Schematic ab (Stufen, Tür, Wandfackel, Wasser …), ersetzt aber nicht den Abgleich mit der Litematica-Liste. Auf Anweisung des Nutzers `done`; AK2–4 → Backlog.
 
-### P1-03 · `WorkPlanner.plan()` `todo`
+### P1-03 · `WorkPlanner.plan()` `done`
 Diff Soll/Ist über `WorldView`; Filterregeln; Priorität: Support-Blöcke (voll) vor abhängigen (Torch, Button, Rail, Carpet, Door, Sign, Ladder, Vine, Slab-Top ohne Träger); Clustering in Würfel `clusterSize`; Reihenfolge nach `layerAxis`/`layerAscending`, innerhalb einer Schicht Nearest-Neighbor ab Spielerposition.
 - AK1 Unit-Test: 3×3×3-Snapshot, Welt leer → alle 27 Tasks, korrekte Cluster-Anzahl
 - AK2 Unit-Test: Welt hat bereits 10 korrekte Blöcke → 17 Tasks
 - AK3 Unit-Test: `additiveOnly=true`, Welt hat falschen Block → Task `SKIP` mit Grund, kein `BREAK`
 - AK4 Unit-Test: Torch über fehlendem Boden → Torch-Task hat niedrigere Priorität als Boden-Task
 - AK5 Unit-Test: `substitutes` stone→[andesite] + Welt hat Andesit → kein Task
+
+Stand 2026-09-15: `WorkPlanner.plan()` mit Diff-Regeln, Filtern, Prioritäten, Würfel-Clustern und Reihenfolge; neues Enum `SkipReason`, `BlockTask.skipReason`. Schnittstelle geändert: `plan(snap, world, start)` – für „Nearest-Neighbor ab Spielerposition“ fehlte die Startposition (ARCHITECTURE.md §2/§4 vorher angepasst). Build + 56 Tests grün.
+- AK1–AK5 erfüllt: `WorkPlannerTest` (27 Tasks / 1 bzw. 8 Cluster · 17 Tasks · SKIP `MISMATCH_ADDITIVE_ONLY`, ohne additiveOnly BREAK · Fackel 100 < Boden 300 und danach einsortiert · Andesit als Ersatz → kein Task). Zusätzlich: `ignoreProperties`, `ignoreAir`, alle Skip-Gründe, `treatAsAir`/ersetzbare Blöcke, FLUID, Schicht-Richtung, Nearest-Neighbor, obere Stufe mit/ohne Träger.
 
 ### P1-04 · Test-Schematic per litemapy `todo`
 `tools/gen_test_schematic.py` erzeugt `test/blockclasses.litematic`: 12×12×6 mit je einer Zeile pro Blockklasse (Vollblock, Slab unten/oben, Stairs 4 Richtungen, Log 3 Achsen, Wall-Torch 4 Seiten, Button, Lever, Trapdoor offen/zu, Door, Rail gerade/Kurve, Carpet, Glazed Terracotta 4 Richtungen, Water source, Fence).
@@ -201,6 +204,8 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert und Litematica im Client läuft
 - P1-02 AK2–4 in-game nachholen (Materialliste == Litematica, gedreht+gespiegelt Bounding Box, deaktivierte Sub-Region), nach P1-04/P1-05
 - `snapshot()` bei großen Placements: eine Map-Zeile pro Position inkl. Luft, kein Größenlimit → Speicherbedarf messen, ggf. Limit oder Luft nur bei `ignoreAir=false` speichern
+- `WorkPlanner`: Nearest-Neighbor ist O(n²) je Schicht – bei sehr großen Flächen (z. B. 1000×1000, 40 000 Cluster pro Schicht) spürbar langsam; ggf. Gitter-Ringsuche
+- `WorkPlanner`: halbe Stufe in der Welt + Ziel Doppelstufe wird als falscher Block gewertet (SKIP/BREAK) statt als „zweite Hälfte platzieren“
 - `snapshot()` sieht nur Schematic-Chunks in Spielernähe; Chunks, die Litematicas Daemon schon geladen, aber noch nicht befüllt hat (`ChunkSchematicState`), liefern evtl. Luft – prüfen, ob das in-game vorkommt
 
 - Multi-Account-Aufteilung von Clustern
