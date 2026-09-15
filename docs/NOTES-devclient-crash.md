@@ -43,6 +43,12 @@ Quellen gelesen per `javap -c` bzw. Vineflower 1.11.1 (dekompiliert, nur zum Les
 
 Ausgeschlossen: Meteors `GlCommandEncoderMixin`/`GlDeviceMixin`/`RenderPipelineMixin` (nur Scissor/Line-Smooth/Feld), MaLiLibs `MixinRenderPipelines`/`MixinBindGroupLayouts` (registrieren nur eigene Pipelines; Vanilla-Builder kopiert Snippet-Listen), Grafiktreiber (Validierungsfehler entsteht vor jedem GL-Aufruf).
 
+Nach dem Workaround lief der Client stabil durch Weltgenerierung, zweimaliges Betreten der Welt und `.sf doctor` (alle Zeilen OK).
+
+## Nicht verwechseln: Watchdog-Report beim Beenden
+
+`crash-2026-09-15_19.52.35-client.txt` („Watchdog (Client shutdown from post-main)“) ist ein anderes Thema: Das Spiel hatte die Welt schon gespeichert und sich beendet, aber die JVM lief > 15 s weiter, weil Baritones `CachedWorld`-Threadpool (`pool-4-thread-1..3`, nicht-daemon) offen blieb. Alle übrigen Threads waren Daemons. Kein Datenverlust, kein SchemaForge-Code beteiligt.
+
 ## Folgen
 
 - **Normale Launcher-Instanzen sind nicht betroffen:** Dort ist weder `fabric.development` gesetzt noch der Dev-Launch-Injector aktiv, MaLiLib lässt das Flag auf `false`. (Nicht selbst getestet – es gibt keine Nicht-Dev-Instanz in diesem Setup.)
