@@ -39,3 +39,30 @@ refs/
 # graphify knowledge graph output (local only)
 
 graphify-out/
+
+# logs and JVM crash dumps (Minecraft bootstrap in tests writes logs/)
+
+logs/
+*.log
+hs_err_pid*
+replay_pid*
+
+# windows
+
+Thumbs.db
+desktop.ini
+
+# python (tools/, P1-04)
+
+__pycache__/
+*.pyc
+.venv/
+
+# original Claude Code kit (superseded by docs/, kept locally only)
+
+files/
+files.zip
+
+# local Claude Code settings
+
+.claude/settings.local.json
