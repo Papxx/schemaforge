@@ -41,3 +41,10 @@ Alle Namen Mojmap. Paket-Präfix `meteordevelopment.meteorclient.` unten weggela
    - **Auslöser** ist `events.packets.InventoryEvent`, das `ClientboundContainerSetContentPacket` kapselt. Geprüft wird, ob `packet.containerId() == mc.player.containerMenu.containerId` ist und `containerMenu.getType()` in der `MenuType`-Liste `stealScreens` steht.
    - **Die Klicks** macht `moveSlots` auf dem **`MeteorExecutor`-Thread** und wartet dazwischen per `Thread.sleep(autoStealDelay / autoStealInitDelay / autoStealRandomDelay)` in Millisekunden. Das ist nicht tickbasiert und darf **nicht so übernommen werden**, weil Regel 7 verlangt, dass Pakete über `ActionBudget` im Tick laufen.
    Den Tick-Hook für P2-01 liefert `events.world.TickEvent.Pre` bzw. `.Post`, abonniert mit `@EventHandler` aus `meteordevelopment.orbit`.
+
+## Was SchemaForge davon übernommen hat (Stand P2-02)
+
+- **P2-01:** `SchemaPrinter.onTickPre(TickEvent.Pre)` mit `@EventHandler` setzt das `ActionBudget` zurück. Meteor abonniert die Handler erst, wenn das Modul aktiv ist.
+- **P1-05:** `.sf preview` zählt Inventar-Items mit `InvUtils.find(item).count()` und nutzt dafür die ganze Inventarschleife aus Punkt 4.
+- **P2-02, bewusst anders als Punkt 1:** Airplace gibt es nur mit `clickAdjacentOnly=false` und nur als Ausweichlösung; mit `true` liefert der Solver `NeedsSupport`.
+- **P2-02, bewusst anders als Punkt 2:** Klickbare Nachbarn werden nicht ausgeschlossen. `PlacementPlan.sneak` ist stattdessen immer `true`. Der Printer (P2-03) darf deshalb nicht `BlockUtils.interact` verwenden, weil das Sneak ausschaltet. Er muss Sneak während des Klicks halten.

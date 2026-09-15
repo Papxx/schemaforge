@@ -41,6 +41,8 @@ Stand 2026-09-13: Code fertig (`VersionProbe`, `ProbeReport`, `SignatureCheck`, 
 - Baritone `26.1-SNAPSHOT` lädt unter MC 26.2 nicht (Fabric: „requires minecraft 26.1.x“) → in `libs.versions.toml` auf `26.2-SNAPSHOT` angehoben (Nutzerentscheidung); dasselbe Jar liegt in `run/mods/`. Ein Release `26.2` steht in Meteors Maven-Metadaten, hat aber keine Dateien (404).
 - Meteors Baritone-Fork hat die Mod-ID `baritone-meteor`; `fabric.mod.json` `suggests` darum ergänzt.
 
+Nachtrag 2026-09-15: Der Render-Crash ist geklärt (MaLiLib, Workaround `tools/patch_malilib_dev.py`). AK1 in-game **bestanden** (25/25 OK, TESTLOG). AK2/AK3 weiter offen (Backlog).
+
 ---
 
 ## Phase 1 – Adapter + Planner
@@ -53,6 +55,8 @@ Stand 2026-09-13: `isPresent()` (Hauptklasse ladbar) und `placementNames()` (Han
 
 Stand 2026-09-15: Auf Anweisung des Nutzers `done` gesetzt. AK1 wurde **nicht** in-game geprüft, sondern als Backlog-Punkt übernommen (mit P1-05 nachholen).
 
+Nachtrag 2026-09-15: AK1 in-game **bestanden** mit `.sf preview` (zwei Placements gelistet; gleichnamige Placements seitdem als „name (2x)“, siehe P1-05 und TESTLOG).
+
 ### P1-02 · `LitematicaAdapter.snapshot()` `done`
 Alle aktivierten Sub-Regionen, Mirror/Rotation von Placement **und** Sub-Region anwenden (Transformationslogik wie in `LitematicaHelper.transform`, eigenständig implementiert), Blöcke via MethodHandle aus der Schematic-World lesen, `materialTotals` berechnen.
 - AK1 Unit-Test: Transformation für alle 4 Rotationen × 3 Mirror-Zustände gegen handverifizierte Tabelle
@@ -63,6 +67,8 @@ Alle aktivierten Sub-Regionen, Mirror/Rotation von Placement **und** Sub-Region 
 Stand 2026-09-15: `compat/PlacementTransform` (Mirror/Rotation, Sub-Region-Box), `core/MaterialRules` (Regeln von Litematicas `MaterialCache`), `LitematicaAdapter.snapshot()` (erstes Placement mit dem Namen; deaktiviertes Placement → leer; Positionen in nicht geladenen Schematic-Chunks werden weggelassen und geloggt; neue Signatur `SchematicPlacement.isEnabled()` auch in `.sf doctor`). ARCHITECTURE.md §1/§2/§4 und NOTES-litematica-api.md ergänzt. Build + 43 Tests grün.
 - AK1 erfüllt: `PlacementTransformTest` (12er-Tabelle + Box-Fälle). Zusätzlich einmalig per Reflection gegen Litematica-0.28.8-`PositionUtils` abgeglichen: 3084 Fälle, 0 Abweichungen (nicht Teil der Test-Suite, weil Litematica im Test-Runtime fehlen muss).
 - AK2–AK4 **nicht** in-game geprüft: Test-Schematic (P1-04) fehlt noch, `.sf preview` (P1-05) auch, und der Dev-Client crasht mit Litematica (siehe P0-05). `MaterialRulesTest` deckt die Blockklassen der Test-Schematic ab (Stufen, Tür, Wandfackel, Wasser …), ersetzt aber nicht den Abgleich mit der Litematica-Liste. Auf Anweisung des Nutzers `done`; AK2–4 → Backlog.
+
+Nachtrag 2026-09-15: AK2 **teilweise** in-game: `.sf preview` liefert für die Test-Schematic exakt die erwartete Liste (15 Typen / 337 Items); der direkte Vergleich mit Litematicas Materiallisten-GUI steht aus. AK3/AK4 offen (Backlog).
 
 ### P1-03 · `WorkPlanner.plan()` `done`
 Diff Soll/Ist über `WorldView`; Filterregeln; Priorität: Support-Blöcke (voll) vor abhängigen (Torch, Button, Rail, Carpet, Door, Sign, Ladder, Vine, Slab-Top ohne Träger); Clustering in Würfel `clusterSize`; Reihenfolge nach `layerAxis`/`layerAscending`, innerhalb einer Schicht Nearest-Neighbor ab Spielerposition.
@@ -83,6 +89,7 @@ Stand 2026-09-15: `WorkPlanner.plan()` mit Diff-Regeln, Filtern, Prioritäten, W
 Stand 2026-09-15: Skript + `tools/requirements.txt` (`litemapy==0.11.0b0`), erzeugte Datei `test/blockclasses.litematic` (965 B) ist eingecheckt, damit In-Game-Tests kein Python brauchen. Layout (im Docstring des Skripts): Steinsockel y=0–1 mit eingefasstem Wasser-Quellblock, Reihen auf y=2, alle abhängigen Blöcke mit echtem Träger (Wandfackeln an Brettern/Terrakotta, Wand-Knopf/-Hebel an Terrakotta/Stamm, obere Stufe neben Stamm, Schienenkurve mit zwei Nachbarn). Abweichungen vom Ticket: Carpet und Fence teilen sich Reihe z=11 (13 Klassen passen nicht in 12 Reihen, Wasser liegt im Sockel), das Schienen-Endstück der Kurve steht in der Tür-Reihe. Datenversion 4903 (MC 26.2) und Litematic-Version 7 (Litematica 0.28.8) gesetzt, damit Litematica keinen Datafixer anwirft.
 - AK1 erfüllt, aber **außerhalb des Spiels** geprüft: Skript lief in einem venv nach `pip install litemapy`; die Datei wurde in einer Scratch-JVM mit Litematicas eigenem Parser (`LitematicaSchematic.readFromData`, 0.28.8, MC-Registries per Bootstrap) fehlerfrei gelesen – Version 7, Datenversion 4903, alle Properties erhalten, 339 Nicht-Luft-Blöcke. Laden im echten Client steht noch aus (Render-Crash, P0-05) → mit P1-02 AK2 nachholen.
 - AK2 erfüllt: Skript druckt 15 Items / 337 Stück (u. a. stone 287, oak_planks 13, rail 6, torch 4, water_bucket 1). `MaterialRules.totals` über die von Litematica gelesenen Blockzustände ergibt exakt dieselbe Liste.
+- Nachtrag 2026-09-15: AK1 jetzt auch im echten Client **bestanden** – Datei lädt in Litematica 0.28.8 und lässt sich platzieren (TESTLOG).
 
 ### P1-05 · `.sf preview` `done`
 Blockanzahl, Cluster-Anzahl, Materialliste (gesamt / fehlend im Inventar), Warnungen (Y<-64, Bounding Box > Renderdistanz, Blöcke mit `Unsupported`-SolveResult).
