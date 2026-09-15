@@ -14,6 +14,7 @@ dev.tore.schemaforge
 │   ├── EasyPlaceProtocol            enum NONE / V2_CARPET / V3_SERVUX
 │   ├── LitematicaAdapter            einzige Klasse mit fi.dy.masa.*-Zugriff (MethodHandles)
 │   ├── PlacementTransform           package-private, reine Mathematik: Mirror/Rotation, Sub-Region-Box (P1-02)
+│   ├── McWorldView                  WorldView über ein echtes Level, nur Client-Thread (P1-05)
 │   └── BaritoneBridge               einzige Klasse mit baritone.api.*-Zugriff
 ├── core/
 │   ├── ActionBudget                 Pakete pro Tick begrenzen
@@ -29,12 +30,13 @@ dev.tore.schemaforge
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
 │   ├── ContainerType                enum CHEST / BARREL / SHULKER / ENDER_CHEST (WorldView, ContainerIndex)
 │   ├── SkipReason                   Grund eines SKIP-Tasks (P1-03)
+│   ├── PreviewReport                Text von .sf preview als Zeilenliste, ohne Chat-Abhängigkeit (P1-05)
 │   └── view/  WorldView, InventoryView, PlayerView   (kleine Interfaces für Testbarkeit)
 ├── modules/
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
 │   ├── ContainerRestock             Restock-Settings
 │   └── BuildResume                  Checkpoint-Persistenz
-├── commands/  SfCommand             .sf <sub> – Sub-Commands als eigene Klassen (DoctorCommand, …)
+├── commands/  SfCommand             .sf <sub> – Sub-Commands als eigene Klassen (DoctorCommand, PreviewCommand, …)
 ├── hud/       BuildProgressHud
 └── mixins/                          leer bis ein Ticket einen Mixin verlangt
 ```
@@ -80,7 +82,9 @@ public record PlanConfig(
     Set<Block> skipIfWorldIs, Set<Block> treatAsAir, Set<Block> neverPlace,
     Map<Block, List<Block>> substitutes,
     Set<String> ignoreProperties
-) {}
+) {
+    public static PlanConfig defaults();   // P1-05: Defaults aus §7; genutzt von .sf preview, bis die Settings existieren (P2-07)
+}
 
 // Ergebnis des PlacementSolvers – was der Printer tatsächlich tun muss.
 public record PlacementPlan(
@@ -180,6 +184,22 @@ public final class WorkPlanner {
     // Task-Reihenfolge im Cluster: priority absteigend, dann Schicht, dann Nearest-Neighbor (Cursor läuft über alle Cluster weiter).
     public List<BlockTask> refresh(Cluster c, WorldView world);      // Ist-Zustand neu einlesen
 }
+
+// P1-05. Reine Daten; Farben und Chat in commands/PreviewCommand.
+public record PreviewReport(List<Line> lines) {
+    public static final int MAX_MATERIAL_ROWS = 30;                  // Rest als eine Zeile „… n more types“
+    public enum Level { HEADER, INFO, WARNING }
+    public record Line(String text, Level level) {}
+    public record Environment(int minBuildY, int maxBuildY, int renderDistance, ToIntFunction<Item> inventoryCount) {}
+    public static PreviewReport of(SchematicSnapshot snap, List<Cluster> clusters, Environment env);
+    // Zeilen: Kopf (Name, Größe, Box) · Blöcke/Task-Arten · Cluster · Skip-Gründe (falls vorhanden)
+    //   · Materialien: gesamt aus snap.materialTotals, „missing“ = Bedarf der PLACE/FLUID-Tasks minus Inventar
+    //   · Warnungen: unter minBuildY, über maxBuildY, breiter als 2·renderDistance·16, Positionen ohne geladenen Schematic-Chunk
+    // Warnung „Unsupported-SolveResult“ fehlt, bis PlacementSolver existiert (P2-02, siehe TASKS.md).
+}
+
+// .sf preview [placement]: ohne Argument das einzige geladene Placement, bei mehreren Namensliste; Vorschläge = placementNames().
+// Plant mit PlanConfig.defaults() gegen die aktuelle Welt ab Spielerposition; sendet keine Pakete.
 
 public final class PlacementSolver {
     public SolveResult solve(BlockTask task, WorldView world, PlayerView player, EasyPlaceProtocol proto);

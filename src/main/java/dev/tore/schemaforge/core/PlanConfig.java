@@ -2,6 +2,7 @@ package dev.tore.schemaforge.core;
 
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 
 import java.util.List;
 import java.util.Map;
@@ -23,4 +24,13 @@ public record PlanConfig(
     Map<Block, List<Block>> substitutes,
     Set<String> ignoreProperties
 ) {
+    /**
+     * Defaults from ARCHITECTURE.md §7. Used by {@code .sf preview} (P1-05) until the module settings exist (P2-07).
+     * A method rather than a constant because {@link Blocks} needs bootstrapped registries.
+     */
+    public static PlanConfig defaults() {
+        return new PlanConfig(5, Direction.Axis.Y, true, true, true,
+            Set.of(), Set.of(Blocks.SHORT_GRASS, Blocks.TALL_GRASS), Set.of(Blocks.TNT),
+            Map.of(), Set.of("waterlogged"));
+    }
 }

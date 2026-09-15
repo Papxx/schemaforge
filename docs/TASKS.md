@@ -84,9 +84,13 @@ Stand 2026-09-15: Skript + `tools/requirements.txt` (`litemapy==0.11.0b0`), erze
 - AK1 erfüllt, aber **außerhalb des Spiels** geprüft: Skript lief in einem venv nach `pip install litemapy`; die Datei wurde in einer Scratch-JVM mit Litematicas eigenem Parser (`LitematicaSchematic.readFromData`, 0.28.8, MC-Registries per Bootstrap) fehlerfrei gelesen – Version 7, Datenversion 4903, alle Properties erhalten, 339 Nicht-Luft-Blöcke. Laden im echten Client steht noch aus (Render-Crash, P0-05) → mit P1-02 AK2 nachholen.
 - AK2 erfüllt: Skript druckt 15 Items / 337 Stück (u. a. stone 287, oak_planks 13, rail 6, torch 4, water_bucket 1). `MaterialRules.totals` über die von Litematica gelesenen Blockzustände ergibt exakt dieselbe Liste.
 
-### P1-05 · `.sf preview` `todo`
+### P1-05 · `.sf preview` `in_progress`
 Blockanzahl, Cluster-Anzahl, Materialliste (gesamt / fehlend im Inventar), Warnungen (Y<-64, Bounding Box > Renderdistanz, Blöcke mit `Unsupported`-SolveResult).
 - AK1 Manuell: Ausgabe ≤ 25 Zeilen für Test-Schematic; bei > 30 Materialien nur Top 30 + „…“
+
+Stand 2026-09-15: `commands/PreviewCommand` (`.sf preview [placement]`, Tab-Vorschläge aus `placementNames()`, ohne Argument das einzige Placement, sonst Namensliste), `core/PreviewReport` (Zeilen als reine Daten), `compat/McWorldView`, `PlanConfig.defaults()` (§7-Defaults, bis P2-07 Settings liefert). Geplant wird gegen die echte Welt ab Spielerposition; „missing“ = Bedarf der noch offenen PLACE/FLUID-Tasks minus Inventar (`InvUtils.find`), „gesamt“ = ganze Schematic wie Litematicas Liste. Warnungen: unter Weltboden / über Bauhöhe (aus dem Level statt fest −64), breiter als Renderdistanz, Positionen ohne geladenen Schematic-Chunk, Skip-Gründe. ARCHITECTURE.md §1/§2/§4 ergänzt. Build + 62 Tests grün.
+- **Abweichung:** Warnung „Blöcke mit `Unsupported`-SolveResult“ fehlt – `PlacementSolver` wirft bis P2-02 nur `UnsupportedOperationException`. In P2-02 nachrüsten (siehe dort).
+- AK1 per `PreviewReportTest` abgesichert (15 Materialien → ≤ 25 Zeilen; 41 Materialien → 30 Zeilen + „… 11 more types“). Die Zeilenzahl ist höchstens 4 + Materialien + 5 Warnzeilen, für die Test-Schematic (15 Materialien) also ≤ 24. **In-game noch nicht geprüft.**
 
 ---
 
@@ -101,6 +105,7 @@ Vollblock, Slab (half), Stairs (facing+half), Pillar (axis), HorizontalFacing (G
 - AK1 Unit-Test pro Blockklasse: gegebener Zielstate → erwarteter `clickFace`/`hitVec`-Halbraum/Yaw-Quadrant
 - AK2 Kein Nachbar zum Anklicken → `NeedsSupport(pos)`
 - AK3 `clickAdjacentOnly=true` → nie `clickPos == task.pos`
+- Nachtrag aus P1-05: `.sf preview` um die Warnung „n blocks unsupported“ (Tasks mit `SolveResult.Unsupported`, Grund gruppiert) ergänzen
 
 ### P2-03 · `Printer` Tick-Loop `todo`
 Für aktuellen Cluster: Tasks in Reihenfolge, Reichweite (`reach`, `lineOfSight`), Solve, Hotbar-Swap via `MaterialManager`, Rotation (echt via Meteor `Rotations` oder Spoof je Profil), Platzieren via `BlockUtils`-Äquivalent, `PlacementLog` schreiben, Budget beachten.
