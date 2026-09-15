@@ -45,11 +45,13 @@ Stand 2026-09-13: Code fertig (`VersionProbe`, `ProbeReport`, `SignatureCheck`, 
 
 ## Phase 1 – Adapter + Planner
 
-### P1-01 · `LitematicaAdapter.placementNames()` + `isPresent()` `in_progress`
+### P1-01 · `LitematicaAdapter.placementNames()` + `isPresent()` `done`
 - AK1 Manuell: zwei geladene Placements → beide Namen im `.sf preview`-Dropdown/Chat
 - AK2 Ohne Litematica → leere Liste, keine Exception
 
 Stand 2026-09-13: `isPresent()` (Hauptklasse ladbar) und `placementNames()` (Handles einmalig per Holder aufgelöst, beide Methodennamen für `getAll…Placements`, bei Inkompatibilität einmal Log-Warnung + leere Liste, nie Exception). AK2 per `LitematicaAdapterTest` erfüllt (Litematica ist `compileOnly`, fehlt also im Test-Runtime). AK1 **offen**: `.sf preview` kommt erst mit P1-05, und der Dev-Client crasht mit Litematica (siehe P0-05).
+
+Stand 2026-09-15: Auf Anweisung des Nutzers `done` gesetzt. AK1 wurde **nicht** in-game geprüft, sondern als Backlog-Punkt übernommen (mit P1-05 nachholen).
 
 ### P1-02 · `LitematicaAdapter.snapshot()` `todo`
 Alle aktivierten Sub-Regionen, Mirror/Rotation von Placement **und** Sub-Region anwenden (Transformationslogik wie in `LitematicaHelper.transform`, eigenständig implementiert), Blöcke via MethodHandle aus der Schematic-World lesen, `materialTotals` berechnen.
@@ -192,6 +194,7 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 ## Backlog (nur sammeln)
 - Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6: `Missing uniform Globals (should be UNIFORM_BUFFER)` beim Textur-Atlas-Tick (siehe P0-05-Notiz); klären, ob Treiber-, MaLiLib- oder Meteor-Kombination
 - P0-05 AK1–3 in-game nachholen, sobald der Litematica-Render-Crash gelöst ist (oder in einer Nicht-Dev-Instanz)
+- P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert und Litematica im Client läuft
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
