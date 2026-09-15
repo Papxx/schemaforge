@@ -165,8 +165,8 @@ public final class BaritoneBridge {
 
 public final class ActionBudget {
     public ActionBudget(IntSupplier limitPerTick);
-    public boolean tryConsume();                                     // false → in diesem Tick nichts mehr
-    public void resetTick();
+    public boolean tryConsume();                                     // false → in diesem Tick nichts mehr; Limit bei jedem Aufruf gelesen, ≤ 0 → nichts
+    public void resetTick();                                         // P2-01: SchemaPrinter @EventHandler TickEvent.Pre
 }
 
 public final class WorkPlanner {

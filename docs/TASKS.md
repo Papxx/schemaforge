@@ -98,9 +98,13 @@ Stand 2026-09-15: `commands/PreviewCommand` (`.sf preview [placement]`, Tab-Vors
 
 ## Phase 2 – Printer MVP
 
-### P2-01 · `ActionBudget` + Tick-Hook `todo`
+### P2-01 · `ActionBudget` + Tick-Hook `done`
 - AK1 Unit-Test: Limit 2 → dritter `tryConsume()` im selben Tick false, nach `resetTick()` wieder true
 - AK2 Modul-Tick registriert via Meteor `EventHandler` auf `TickEvent.Pre` (Name aus refs prüfen)
+
+Stand 2026-09-15: `ActionBudget` zählt verbrauchte Aktionen, liest das Limit bei jedem `tryConsume()` (geänderte Settings greifen sofort, Limit ≤ 0 erlaubt nichts), nur Client-Thread. `SchemaPrinter` hält ein Budget (fest 1, bis `blocksPerTick` in P2-07 kommt) und setzt es in `@EventHandler onTickPre(TickEvent.Pre)` zurück. Build + 66 Tests grün.
+- AK1 erfüllt: `ActionBudgetTest` (Limit 2 → dritter Aufruf false, nach `resetTick()` wieder zwei; Limit-Änderung im Tick; 0/negativ).
+- AK2 erfüllt: `meteordevelopment.meteorclient.events.world.TickEvent.Pre` und `meteordevelopment.orbit.EventHandler` in `refs/meteor-client` nachgeschlagen (Verwendung wie in `HighwayBuilder.onTick`); `SchemaPrinterTest` prüft per Reflection, dass der Hook annotiert ist. In-game nicht prüfbar, solange das Modul nicht registriert ist (P2-07); Meteor abonniert Handler erst beim Aktivieren eines Moduls.
 
 ### P2-02 · `PlacementSolver` Grundklassen `todo`
 Vollblock, Slab (half), Stairs (facing+half), Pillar (axis), HorizontalFacing (Glazed Terracotta, Furnace), Fence/Wall (Nachbar egal). Klick-Seite + `hitVec` so wählen, dass Vanilla-Placement den Zielstate erzeugt; `requiresRealRotation` wo Facing vom Blick abhängt.
