@@ -24,6 +24,8 @@ import java.util.stream.Collectors;
 public record PreviewReport(List<Line> lines) {
     /** Material rows shown at most; the rest is folded into one "… more" line. */
     public static final int MAX_MATERIAL_ROWS = 30;
+    /** Reasons listed in the unsupported-blocks warning. */
+    private static final int MAX_UNSUPPORTED_GROUPS = 4;
 
     public enum Level { HEADER, INFO, WARNING }
 
@@ -62,12 +64,16 @@ public record PreviewReport(List<Line> lines) {
         Map<TaskKind, Integer> kinds = new EnumMap<>(TaskKind.class);
         Map<SkipReason, Integer> skips = new EnumMap<>(SkipReason.class);
         Map<Item, Integer> needed = new HashMap<>();
+        Map<String, Integer> unsupported = new HashMap<>();
         for (Cluster cluster : clusters) {
             for (BlockTask task : cluster.tasks()) {
                 kinds.merge(task.kind(), 1, Integer::sum);
                 if (task.kind() == TaskKind.SKIP) skips.merge(task.skipReason(), 1, Integer::sum);
                 if (task.kind() == TaskKind.PLACE || task.kind() == TaskKind.FLUID) {
                     for (MaterialRules.Requirement r : MaterialRules.required(task.target())) needed.merge(r.item(), r.count(), Integer::sum);
+                }
+                if (task.kind() == TaskKind.PLACE) {
+                    PlacementSolver.unsupportedReason(task.target()).ifPresent(reason -> unsupported.merge(reason, 1, Integer::sum));
                 }
             }
         }
@@ -84,7 +90,21 @@ public record PreviewReport(List<Line> lines) {
 
         addMaterials(lines, snap.materialTotals(), needed, env.inventoryCount());
         addWarnings(lines, snap, sizeX, sizeY, sizeZ, env);
+        if (!unsupported.isEmpty()) lines.add(warning(unsupportedLine(unsupported)));
         return new PreviewReport(lines);
+    }
+
+    /** Largest groups first; at most {@link #MAX_UNSUPPORTED_GROUPS} reasons, so the line stays readable. */
+    private static String unsupportedLine(Map<String, Integer> unsupported) {
+        int total = unsupported.values().stream().mapToInt(Integer::intValue).sum();
+        List<Map.Entry<String, Integer>> groups = unsupported.entrySet().stream()
+            .sorted(Map.Entry.<String, Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+            .toList();
+        String shown = groups.stream().limit(MAX_UNSUPPORTED_GROUPS)
+            .map(e -> e.getValue() + " " + e.getKey())
+            .collect(Collectors.joining(", "));
+        String more = groups.size() > MAX_UNSUPPORTED_GROUPS ? ", …" : "";
+        return "%d blocks the printer cannot place yet: %s%s".formatted(total, shown, more);
     }
 
     private static void addMaterials(List<Line> lines, Map<Item, Integer> totals, Map<Item, Integer> needed, ToIntFunction<Item> inventory) {

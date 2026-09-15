@@ -21,6 +21,7 @@ dev.tore.schemaforge
 │   ├── SchematicSnapshot            immutable Soll-Zustand
 │   ├── WorkPlanner                  Diff → Tasks → Cluster → Reihenfolge
 │   ├── PlacementSolver              BlockState → PlacementPlan (Klick-Seite, Blick, Hand-Item)
+│   ├── SolverConfig                 clickAdjacentOnly, lineOfSight für den PlacementSolver (P2-02)
 │   ├── Printer                      Tick-Loop, platziert innerhalb Reichweite
 │   ├── Navigator                    Cluster-/Container-Ziele an BaritoneBridge
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
@@ -195,14 +196,34 @@ public record PreviewReport(List<Line> lines) {
     // Zeilen: Kopf (Name, Größe, Box) · Blöcke/Task-Arten · Cluster · Skip-Gründe (falls vorhanden)
     //   · Materialien: gesamt aus snap.materialTotals, „missing“ = Bedarf der PLACE/FLUID-Tasks minus Inventar
     //   · Warnungen: unter minBuildY, über maxBuildY, breiter als 2·renderDistance·16, Positionen ohne geladenen Schematic-Chunk
-    // Warnung „Unsupported-SolveResult“ fehlt, bis PlacementSolver existiert (P2-02, siehe TASKS.md).
+    //   · (P2-02) PLACE-Tasks mit PlacementSolver.unsupportedReason, nach Grund gruppiert, max. 4 Gründe in einer Zeile
 }
 
 // .sf preview [placement]: ohne Argument das einzige geladene Placement, bei mehreren Namensliste; Vorschläge = placementNames().
 // Plant mit PlanConfig.defaults() gegen die aktuelle Welt ab Spielerposition; sendet keine Pakete.
 
+// P2-02: Settings, die die Klickwahl beeinflussen (Werte aus SchemaPrinter, bis P2-07 Defaults true/true).
+public record SolverConfig(boolean clickAdjacentOnly, boolean lineOfSight) {}
+
 public final class PlacementSolver {
+    public PlacementSolver(SolverConfig cfg);                        // P2-02: Konstruktor ergänzt (clickAdjacentOnly braucht Konfiguration)
     public SolveResult solve(BlockTask task, WorldView world, PlayerView player, EasyPlaceProtocol proto);
+    // P2-02 Regeln (Vanilla getStateForPlacement, 26.2 nachgelesen):
+    //  nur PLACE-Tasks; ohne Item → Unsupported · keine Regel für die Blockklasse → Unsupported (abhängige Blöcke: P2-04)
+    //  schlicht (voller Kollisionsblock ohne Properties außer waterlogged; Fence, Wall): jede Seite
+    //    nicht volle Blöcke ohne Properties (Fackel, Blume, Teppich) → Unsupported bis P2-04
+    //  Slab BOTTOM: Seite ≠ DOWN, seitlich Treffer-Y unten (+0.25) · TOP: Seite ≠ UP, seitlich oben (+0.75) · DOUBLE → Unsupported
+    //  Stairs: Hälfte wie Slab; FACING = Blickrichtung des Spielers → requiresRealRotation, Yaw im Quadranten von FACING
+    //  RotatedPillarBlock: Klick-Seite auf der Achse AXIS
+    //  GlazedTerracotta, AbstractFurnace: FACING = Gegenrichtung des Blicks → requiresRealRotation
+    // Kandidaten: Nachbar N mit voller (sturdy) Fläche zum Ziel, nicht ersetzbar; clickPos = N, clickFace = Richtung N→Ziel,
+    //  hitVec auf der gemeinsamen Fläche. clickAdjacentOnly=false: zusätzlich Klick auf die Zielposition selbst („Airplace“),
+    //  nur wenn kein Nachbar-Kandidat nutzbar ist. Rangfolge: Fläche zum Auge + in Reichweite + (lineOfSight ? Sicht : egal),
+    //  dann Nachbar vor Airplace, dann Abstand. Reichweite/Sicht des gewählten Plans prüft der Printer (P2-03) erneut.
+    //  Kein Kandidat → NeedsSupport(unter dem Ziel; bei oberer Hälfte über dem Ziel; bei X/Z-Pillar westlich/nördlich).
+    //  sneak immer true (verhindert, dass ein Klick eine GUI/Tür des Nachbarn bedient). yaw/pitch = Blick auf hitVec.
+    //  proto wird erst in P5-06 ausgewertet.
+    public static Optional<String> unsupportedReason(BlockState target); // unabhängig von Welt/Spieler; leer = Regel vorhanden (für .sf preview)
 }
 
 public final class ContainerIndex {

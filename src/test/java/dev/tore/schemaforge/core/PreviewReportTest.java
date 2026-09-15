@@ -10,6 +10,8 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.block.state.BlockState;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -117,6 +119,20 @@ class PreviewReportTest {
 
         assertTrue(text(report).contains("0 to place, 0 fluids, 0 to break, 2 skipped"), text(report));
         assertTrue(text(report).contains("Skipped: 1 never placed (filter), 1 wrong block in world (additive only)"), text(report));
+    }
+
+    @Test
+    void unsupportedBlocksAreGroupedByReason() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(ORIGIN, Blocks.TORCH.defaultBlockState());
+        states.put(ORIGIN.east(), Blocks.TORCH.defaultBlockState());
+        states.put(ORIGIN.east(2), Blocks.OAK_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.DOUBLE));
+        states.put(ORIGIN.east(3), Blocks.STONE.defaultBlockState());
+        PreviewReport report = report(snapshot(states), new FakeWorld(), ENV);
+
+        PreviewReport.Line last = report.lines().getLast();
+        assertEquals(PreviewReport.Level.WARNING, last.level());
+        assertEquals("3 blocks the printer cannot place yet: 2 no rule for TorchBlock, 1 double slab", last.text());
     }
 
     private static PreviewReport report(SchematicSnapshot snap, WorldView world, PreviewReport.Environment env) {

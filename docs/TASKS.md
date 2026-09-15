@@ -89,7 +89,7 @@ Blockanzahl, Cluster-Anzahl, Materialliste (gesamt / fehlend im Inventar), Warnu
 - AK1 Manuell: Ausgabe ≤ 25 Zeilen für Test-Schematic; bei > 30 Materialien nur Top 30 + „…“
 
 Stand 2026-09-15: `commands/PreviewCommand` (`.sf preview [placement]`, Tab-Vorschläge aus `placementNames()`, ohne Argument das einzige Placement, sonst Namensliste), `core/PreviewReport` (Zeilen als reine Daten), `compat/McWorldView`, `PlanConfig.defaults()` (§7-Defaults, bis P2-07 Settings liefert). Geplant wird gegen die echte Welt ab Spielerposition; „missing“ = Bedarf der noch offenen PLACE/FLUID-Tasks minus Inventar (`InvUtils.find`), „gesamt“ = ganze Schematic wie Litematicas Liste. Warnungen: unter Weltboden / über Bauhöhe (aus dem Level statt fest −64), breiter als Renderdistanz, Positionen ohne geladenen Schematic-Chunk, Skip-Gründe. ARCHITECTURE.md §1/§2/§4 ergänzt. Build + 62 Tests grün.
-- **Abweichung:** Warnung „Blöcke mit `Unsupported`-SolveResult“ fehlt – `PlacementSolver` wirft bis P2-02 nur `UnsupportedOperationException`. In P2-02 nachrüsten (siehe dort).
+- **Abweichung:** Warnung „Blöcke mit `Unsupported`-SolveResult“ fehlt – `PlacementSolver` wirft bis P2-02 nur `UnsupportedOperationException`. In P2-02 nachrüsten (siehe dort). → mit P2-02 nachgerüstet.
 - AK1 per `PreviewReportTest` abgesichert (15 Materialien → ≤ 25 Zeilen; 41 Materialien → 30 Zeilen + „… 11 more types“). Die Zeilenzahl ist höchstens 4 + Materialien + 5 Warnzeilen, für die Test-Schematic (15 Materialien) also ≤ 24.
 - AK1 in-game **bestanden** (Dev-Client, `blockclasses.litematic` platziert): 19 Zeilen, 339 Blöcke / 338 place + 1 fluid, 9 Cluster, 15 Materialien / 337 Items – identisch mit der Skript-Liste. Keine Warnungen (Placement kompakt, Y 79–84).
 - Dabei gefunden und behoben: zwei Placements mit gleichem Namen erschienen als „blockclasses, blockclasses“, das zweite war nicht wählbar. Jetzt: Namensliste als „blockclasses (2x)“, Tab-Vorschläge ohne Doppelte, beim Preview gelber Hinweis „2 placements are named …; showing the first one. Rename them in Litematica …“. Der Fix selbst ist nur per Build geprüft, nicht erneut in-game.
@@ -106,12 +106,19 @@ Stand 2026-09-15: `ActionBudget` zählt verbrauchte Aktionen, liest das Limit be
 - AK1 erfüllt: `ActionBudgetTest` (Limit 2 → dritter Aufruf false, nach `resetTick()` wieder zwei; Limit-Änderung im Tick; 0/negativ).
 - AK2 erfüllt: `meteordevelopment.meteorclient.events.world.TickEvent.Pre` und `meteordevelopment.orbit.EventHandler` in `refs/meteor-client` nachgeschlagen (Verwendung wie in `HighwayBuilder.onTick`); `SchemaPrinterTest` prüft per Reflection, dass der Hook annotiert ist. In-game nicht prüfbar, solange das Modul nicht registriert ist (P2-07); Meteor abonniert Handler erst beim Aktivieren eines Moduls.
 
-### P2-02 · `PlacementSolver` Grundklassen `todo`
+### P2-02 · `PlacementSolver` Grundklassen `done`
 Vollblock, Slab (half), Stairs (facing+half), Pillar (axis), HorizontalFacing (Glazed Terracotta, Furnace), Fence/Wall (Nachbar egal). Klick-Seite + `hitVec` so wählen, dass Vanilla-Placement den Zielstate erzeugt; `requiresRealRotation` wo Facing vom Blick abhängt.
 - AK1 Unit-Test pro Blockklasse: gegebener Zielstate → erwarteter `clickFace`/`hitVec`-Halbraum/Yaw-Quadrant
 - AK2 Kein Nachbar zum Anklicken → `NeedsSupport(pos)`
 - AK3 `clickAdjacentOnly=true` → nie `clickPos == task.pos`
 - Nachtrag aus P1-05: `.sf preview` um die Warnung „n blocks unsupported“ (Tasks mit `SolveResult.Unsupported`, Grund gruppiert) ergänzen
+
+Stand 2026-09-15: `PlacementSolver` mit Regeln aus Vanilla-26.2-`getStateForPlacement` (Vineflower gelesen: `SlabBlock`, `StairBlock`, `RotatedPillarBlock`, `GlazedTerracottaBlock`, `AbstractFurnaceBlock`, `FenceBlock`, `WallBlock`, `BlockPlaceContext`): Slab-/Stufen-Hälfte über Klick-Seite und Treffer-Y, Stufen-Facing = Blickrichtung, Terrakotta/Ofen = Gegenrichtung, Pillar-Achse = Klick-Seite. Kandidaten sind Nachbarn mit voller Fläche zum Ziel; bewertet nach „Fläche zeigt zum Auge + in Reichweite + Sicht“, dann Nachbar vor Airplace, dann Abstand. Neu: `SolverConfig(clickAdjacentOnly, lineOfSight)` als Konstruktor-Parameter und `PlacementSolver.unsupportedReason(BlockState)` (ARCHITECTURE.md §1/§4 vorher ergänzt). `sneak` ist immer true. Build + 81 Tests grün.
+- AK1 erfüllt: `PlacementSolverTest` je Klasse (Vollblock, Slab unten/oben/doppelt, Stairs alle 4 Richtungen + oben, Pillar Y/X, Terrakotta + Ofen alle 4 Richtungen, Fence/Wall). Erwartung gegen die Vanilla-Formeln (`Direction.fromYRot(yaw)`, Hälften-Bedingung aus `SlabBlock`), nicht gegen Solver-Konstanten; zusätzlich Blickwinkel zeigt auf `hitVec`.
+- AK2 erfüllt: kein Nachbar (oder nur ersetzbarer / nicht voller Nachbar) → `NeedsSupport` (unten; obere Hälfte oben; X/Z-Pillar westlich/nördlich).
+- AK3 erfüllt: 5 Zielzustände × 3 Welten, nie `clickPos == task.pos`; mit `clickAdjacentOnly=false` Airplace nur als Ausweichlösung.
+- Nachtrag P1-05 erledigt: `.sf preview` meldet „n blocks the printer cannot place yet: …“ (`PreviewReportTest`). Für die Test-Schematic kommt damit eine Zeile dazu (Wandfackeln, Knöpfe, Hebel, Falltüren, Türen, Schienen, Teppiche → P2-04); Zeilenzahl ≤ 4 + Materialien + 6 = 25.
+- Nicht in-game geprüft (erst mit dem Printer in P2-03 sichtbar). Doppelstufen sind `Unsupported`, siehe Backlog.
 
 ### P2-03 · `Printer` Tick-Loop `todo`
 Für aktuellen Cluster: Tasks in Reihenfolge, Reichweite (`reach`, `lineOfSight`), Solve, Hotbar-Swap via `MaterialManager`, Rotation (echt via Meteor `Rotations` oder Spoof je Profil), Platzieren via `BlockUtils`-Äquivalent, `PlacementLog` schreiben, Budget beachten.
@@ -223,7 +230,9 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - `LitematicaAdapter.snapshot(name)` kann bei gleichnamigen Placements nur das erste ansprechen; ggf. Auswahl über Index oder Litematicas ausgewähltes Placement
 - `snapshot()` bei großen Placements: eine Map-Zeile pro Position inkl. Luft, kein Größenlimit → Speicherbedarf messen, ggf. Limit oder Luft nur bei `ignoreAir=false` speichern
 - `WorkPlanner`: Nearest-Neighbor ist O(n²) je Schicht – bei sehr großen Flächen (z. B. 1000×1000, 40 000 Cluster pro Schicht) spürbar langsam; ggf. Gitter-Ringsuche
-- `WorkPlanner`: halbe Stufe in der Welt + Ziel Doppelstufe wird als falscher Block gewertet (SKIP/BREAK) statt als „zweite Hälfte platzieren“
+- `WorkPlanner`: halbe Stufe in der Welt + Ziel Doppelstufe wird als falscher Block gewertet (SKIP/BREAK) statt als „zweite Hälfte platzieren“; `PlacementSolver` meldet Doppelstufen deshalb vorerst `Unsupported` (P2-02) – beides zusammen lösen
+- `PlacementSolver`: volle Blöcke mit nachbarabhängigen Properties (`snowy` bei Gras/Myzel/Podsol, Laub `distance`/`persistent`, Glasscheiben/Eisengitter) sind `Unsupported`; wie Fence/Wall behandeln, sobald `ignoreProperties`/Verifier das abdecken
+- `PlacementSolver`: `hitVec` für Airplace liegt auf der Fläche der Zielposition; wenn dort ein ersetzbarer Block mit Outline steht (Gras), trifft ein echter Strahl dessen Box – mit `lineOfSight`-Raycast im Printer (P2-03) prüfen
 - `snapshot()` sieht nur Schematic-Chunks in Spielernähe; Chunks, die Litematicas Daemon schon geladen, aber noch nicht befüllt hat (`ChunkSchematicState`), liefern evtl. Luft – prüfen, ob das in-game vorkommt
 
 - Multi-Account-Aufteilung von Clustern
