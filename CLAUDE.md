@@ -73,7 +73,7 @@ Vorbild-Code in Meteor (gleiche Lizenz GPL-3.0, darf adaptiert werden):
 
 - Java 25, Records für Datenklassen, `final` wo möglich, keine `null`-Rückgaben in `core/` (Optional oder leere Collection).
 - Paket-Root: `dev.tore.schemaforge` (statt `com.example.addon`).
-- Settings-Namen im Meteor-GUI englisch, Chat-Meldungen englisch (Server-Umfeld), Kommentare und Commit-Messages deutsch oder englisch – konsistent pro Datei.
+- Settings-Namen im Meteor-GUI englisch, Chat-Meldungen englisch (Server-Umfeld), Code-Kommentare (inkl. Javadoc) **nur englisch**; Commit-Messages deutsch oder englisch.
 - Commit-Message: `P2-04: PlacementSolver für Slabs/Stairs` (Ticket-ID voran).
 - Logging über `SchemaForgeAddon.LOG` (SLF4J), nie `System.out`.
 
