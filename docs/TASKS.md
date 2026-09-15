@@ -203,9 +203,9 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 ---
 
 ## Backlog (nur sammeln)
-- Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6: `Missing uniform Globals (should be UNIFORM_BUFFER)` beim Textur-Atlas-Tick (siehe P0-05-Notiz); klären, ob Treiber-, MaLiLib- oder Meteor-Kombination
-- P0-05 AK1–3 in-game nachholen, sobald der Litematica-Render-Crash gelöst ist (oder in einer Nicht-Dev-Instanz)
-- P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert und Litematica im Client läuft
+- ~~Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6~~ **geklärt 2026-09-15:** MaLiLibs `test.MixinSharedConstants` schaltet im Dev-Umfeld Vanilla-GPU-Validierung ein, Minecraft 26.2 scheitert daran beim ersten Textur-Tick. Nicht Treiber, nicht Litematica, nicht SchemaForge; normale Instanzen nicht betroffen. Workaround `python tools/patch_malilib_dev.py`, Details `docs/NOTES-devclient-crash.md`
+- P0-05 AK1–3 in-game nachholen – jetzt möglich (Dev-Client läuft mit Workaround)
+- P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert (Litematica läuft im Dev-Client seit dem MaLiLib-Workaround)
 - P1-02 AK2–4 in-game nachholen (Materialliste == Litematica, gedreht+gespiegelt Bounding Box, deaktivierte Sub-Region), nach P1-05; dabei auch prüfen, dass `test/blockclasses.litematic` im echten Client lädt (P1-04 AK1). Erwartete Liste: `python tools/gen_test_schematic.py`
 - `snapshot()` bei großen Placements: eine Map-Zeile pro Position inkl. Luft, kein Größenlimit → Speicherbedarf messen, ggf. Limit oder Luft nur bei `ignoreAir=false` speichern
 - `WorkPlanner`: Nearest-Neighbor ist O(n²) je Schicht – bei sehr großen Flächen (z. B. 1000×1000, 40 000 Cluster pro Schicht) spürbar langsam; ggf. Gitter-Ringsuche

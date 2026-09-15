@@ -63,6 +63,7 @@ Vorbild-Code in Meteor (gleiche Lizenz GPL-3.0, darf adaptiert werden):
 ./gradlew build                 # Jar in build/libs/
 ./gradlew test                  # JUnit 5 – reine Logik (WorkPlanner, PlacementSolver, ContainerIndex) muss ohne Minecraft-Runtime testbar sein
 ./gradlew runClient             # Dev-Client mit Meteor + Addon (Litematica/MaLiLib-Jars liegen in run/mods/)
+python tools/patch_malilib_dev.py   # einmalig nach jedem MaLiLib-Wechsel, sonst stürzt runClient ab (docs/NOTES-devclient-crash.md)
 ```
 
 - Logik-Klassen in `core/` dürfen **keine** Minecraft-Runtime-Abhängigkeit über `BlockState`/`BlockPos` hinaus haben; alles, was `Minecraft.getInstance()` braucht, gehört in `modules/`, `compat/` oder `Printer`/`Navigator`.
