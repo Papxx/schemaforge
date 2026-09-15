@@ -84,13 +84,15 @@ Stand 2026-09-15: Skript + `tools/requirements.txt` (`litemapy==0.11.0b0`), erze
 - AK1 erfüllt, aber **außerhalb des Spiels** geprüft: Skript lief in einem venv nach `pip install litemapy`; die Datei wurde in einer Scratch-JVM mit Litematicas eigenem Parser (`LitematicaSchematic.readFromData`, 0.28.8, MC-Registries per Bootstrap) fehlerfrei gelesen – Version 7, Datenversion 4903, alle Properties erhalten, 339 Nicht-Luft-Blöcke. Laden im echten Client steht noch aus (Render-Crash, P0-05) → mit P1-02 AK2 nachholen.
 - AK2 erfüllt: Skript druckt 15 Items / 337 Stück (u. a. stone 287, oak_planks 13, rail 6, torch 4, water_bucket 1). `MaterialRules.totals` über die von Litematica gelesenen Blockzustände ergibt exakt dieselbe Liste.
 
-### P1-05 · `.sf preview` `in_progress`
+### P1-05 · `.sf preview` `done`
 Blockanzahl, Cluster-Anzahl, Materialliste (gesamt / fehlend im Inventar), Warnungen (Y<-64, Bounding Box > Renderdistanz, Blöcke mit `Unsupported`-SolveResult).
 - AK1 Manuell: Ausgabe ≤ 25 Zeilen für Test-Schematic; bei > 30 Materialien nur Top 30 + „…“
 
 Stand 2026-09-15: `commands/PreviewCommand` (`.sf preview [placement]`, Tab-Vorschläge aus `placementNames()`, ohne Argument das einzige Placement, sonst Namensliste), `core/PreviewReport` (Zeilen als reine Daten), `compat/McWorldView`, `PlanConfig.defaults()` (§7-Defaults, bis P2-07 Settings liefert). Geplant wird gegen die echte Welt ab Spielerposition; „missing“ = Bedarf der noch offenen PLACE/FLUID-Tasks minus Inventar (`InvUtils.find`), „gesamt“ = ganze Schematic wie Litematicas Liste. Warnungen: unter Weltboden / über Bauhöhe (aus dem Level statt fest −64), breiter als Renderdistanz, Positionen ohne geladenen Schematic-Chunk, Skip-Gründe. ARCHITECTURE.md §1/§2/§4 ergänzt. Build + 62 Tests grün.
 - **Abweichung:** Warnung „Blöcke mit `Unsupported`-SolveResult“ fehlt – `PlacementSolver` wirft bis P2-02 nur `UnsupportedOperationException`. In P2-02 nachrüsten (siehe dort).
-- AK1 per `PreviewReportTest` abgesichert (15 Materialien → ≤ 25 Zeilen; 41 Materialien → 30 Zeilen + „… 11 more types“). Die Zeilenzahl ist höchstens 4 + Materialien + 5 Warnzeilen, für die Test-Schematic (15 Materialien) also ≤ 24. **In-game noch nicht geprüft.**
+- AK1 per `PreviewReportTest` abgesichert (15 Materialien → ≤ 25 Zeilen; 41 Materialien → 30 Zeilen + „… 11 more types“). Die Zeilenzahl ist höchstens 4 + Materialien + 5 Warnzeilen, für die Test-Schematic (15 Materialien) also ≤ 24.
+- AK1 in-game **bestanden** (Dev-Client, `blockclasses.litematic` platziert): 19 Zeilen, 339 Blöcke / 338 place + 1 fluid, 9 Cluster, 15 Materialien / 337 Items – identisch mit der Skript-Liste. Keine Warnungen (Placement kompakt, Y 79–84).
+- Dabei gefunden und behoben: zwei Placements mit gleichem Namen erschienen als „blockclasses, blockclasses“, das zweite war nicht wählbar. Jetzt: Namensliste als „blockclasses (2x)“, Tab-Vorschläge ohne Doppelte, beim Preview gelber Hinweis „2 placements are named …; showing the first one. Rename them in Litematica …“. Der Fix selbst ist nur per Build geprüft, nicht erneut in-game.
 
 ---
 
@@ -211,8 +213,10 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - ~~Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6~~ **geklärt 2026-09-15:** MaLiLibs `test.MixinSharedConstants` schaltet im Dev-Umfeld Vanilla-GPU-Validierung ein, Minecraft 26.2 scheitert daran beim ersten Textur-Tick. Nicht Treiber, nicht Litematica, nicht SchemaForge; normale Instanzen nicht betroffen. Workaround `python tools/patch_malilib_dev.py`, Details `docs/NOTES-devclient-crash.md`
 - P0-05 AK1 in-game **bestanden** (2026-09-15, siehe TESTLOG); AK2 (Litematica entfernt) und AK3 (Baritone entfernt) noch nachholen – Jar in `run/mods` umbenennen, `.sf doctor`
 - Baritone (Meteor-Fork 26.2-SNAPSHOT) hält beim Beenden nicht-daemon Threads (`CachedWorld`) offen → Minecraft-Watchdog schreibt nach ~15 s einen „Client shutdown“-Crash-Report. Harmlos (alles gespeichert), aber Crash-Reports verwirren; nur beobachten, SchemaForge kann das nicht beheben (nur `baritone.api`)
-- P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert (Litematica läuft im Dev-Client seit dem MaLiLib-Workaround)
-- P1-02 AK2–4 in-game nachholen (Materialliste == Litematica, gedreht+gespiegelt Bounding Box, deaktivierte Sub-Region), nach P1-05; dabei auch prüfen, dass `test/blockclasses.litematic` im echten Client lädt (P1-04 AK1). Erwartete Liste: `python tools/gen_test_schematic.py`
+- ~~P1-01 AK1 in-game~~ **bestanden** 2026-09-15 mit `.sf preview` (zwei Placements → beide gelistet; beide hießen gleich, siehe P1-05)
+- ~~P1-04 AK1 im echten Client~~ **bestanden** 2026-09-15: `test/blockclasses.litematic` lädt und lässt sich platzieren
+- P1-02 AK2–4 in-game nachholen: AK2 teilweise – `.sf preview` liefert exakt die Skript-Liste (15 / 337), der Abgleich mit Litematicas eigener Materialliste (GUI) steht noch aus; AK3 (gedreht+gespiegelt → Box in der Preview-Kopfzeile vs. Litematica) und AK4 (Sub-Region deaktiviert) offen. Hinweis: die Test-Schematic hat nur eine Sub-Region, für AK4 braucht es eine zweite
+- `LitematicaAdapter.snapshot(name)` kann bei gleichnamigen Placements nur das erste ansprechen; ggf. Auswahl über Index oder Litematicas ausgewähltes Placement
 - `snapshot()` bei großen Placements: eine Map-Zeile pro Position inkl. Luft, kein Größenlimit → Speicherbedarf messen, ggf. Limit oder Luft nur bei `ignoreAir=false` speichern
 - `WorkPlanner`: Nearest-Neighbor ist O(n²) je Schicht – bei sehr großen Flächen (z. B. 1000×1000, 40 000 Cluster pro Schicht) spürbar langsam; ggf. Gitter-Ringsuche
 - `WorkPlanner`: halbe Stufe in der Welt + Ziel Doppelstufe wird als falscher Block gewertet (SKIP/BREAK) statt als „zweite Hälfte platzieren“

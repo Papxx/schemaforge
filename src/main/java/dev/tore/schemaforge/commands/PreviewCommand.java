@@ -22,8 +22,11 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * {@code .sf preview [placement]} (P1-05): snapshots the placement, plans it with the default {@link PlanConfig}
@@ -40,7 +43,7 @@ public final class PreviewCommand {
         return LiteralArgumentBuilder.<ClientSuggestionProvider>literal("preview")
             .executes(_ -> run(Optional.empty()))
             .then(RequiredArgumentBuilder.<ClientSuggestionProvider, String>argument("placement", StringArgumentType.greedyString())
-                .suggests((_, builder) -> SharedSuggestionProvider.suggest(LitematicaAdapter.placementNames(), builder))
+                .suggests((_, builder) -> SharedSuggestionProvider.suggest(LitematicaAdapter.placementNames().stream().distinct(), builder))
                 .executes(ctx -> run(Optional.of(StringArgumentType.getString(ctx, "placement")))));
     }
 
@@ -55,11 +58,18 @@ public final class PreviewCommand {
         String name;
         if (requested.isPresent()) {
             name = requested.get();
-            if (!names.contains(name)) return error("Placement '" + name + "' not found. Loaded: " + String.join(", ", names));
+            if (!names.contains(name)) return error("Placement '" + name + "' not found. Loaded: " + describe(names));
         } else if (names.size() == 1) {
             name = names.getFirst();
         } else {
-            return error("Several placements loaded, choose one with .sf preview <name>: " + String.join(", ", names));
+            return error("Several placements loaded, choose one with .sf preview <name>: " + describe(names));
+        }
+
+        // Litematica allows equal names, but snapshot() can only address the first placement with a name.
+        long sameName = names.stream().filter(name::equals).count();
+        if (sameName > 1) {
+            ChatUtils.sendMsg(PREFIX, Component.literal(sameName + " placements are named '" + name
+                + "'; showing the first one. Rename them in Litematica to preview the others.").withStyle(ChatFormatting.YELLOW));
         }
 
         Optional<SchematicSnapshot> snapshot = LitematicaAdapter.snapshot(name);
@@ -92,6 +102,14 @@ public final class PreviewCommand {
             case INFO -> new ChatFormatting[]{ChatFormatting.GRAY};
             case WARNING -> new ChatFormatting[]{ChatFormatting.YELLOW};
         };
+    }
+
+    /** Distinct names in load order, repeated names as {@code name (2x)}. */
+    private static String describe(List<String> names) {
+        Map<String, Long> counts = names.stream().collect(Collectors.groupingBy(n -> n, LinkedHashMap::new, Collectors.counting()));
+        return counts.entrySet().stream()
+            .map(e -> e.getValue() > 1 ? e.getKey() + " (" + e.getValue() + "x)" : e.getKey())
+            .collect(Collectors.joining(", "));
     }
 
     private static int error(String message) {
