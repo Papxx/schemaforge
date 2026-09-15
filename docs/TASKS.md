@@ -75,10 +75,14 @@ Diff Soll/Ist über `WorldView`; Filterregeln; Priorität: Support-Blöcke (voll
 Stand 2026-09-15: `WorkPlanner.plan()` mit Diff-Regeln, Filtern, Prioritäten, Würfel-Clustern und Reihenfolge; neues Enum `SkipReason`, `BlockTask.skipReason`. Schnittstelle geändert: `plan(snap, world, start)` – für „Nearest-Neighbor ab Spielerposition“ fehlte die Startposition (ARCHITECTURE.md §2/§4 vorher angepasst). Build + 56 Tests grün.
 - AK1–AK5 erfüllt: `WorkPlannerTest` (27 Tasks / 1 bzw. 8 Cluster · 17 Tasks · SKIP `MISMATCH_ADDITIVE_ONLY`, ohne additiveOnly BREAK · Fackel 100 < Boden 300 und danach einsortiert · Andesit als Ersatz → kein Task). Zusätzlich: `ignoreProperties`, `ignoreAir`, alle Skip-Gründe, `treatAsAir`/ersetzbare Blöcke, FLUID, Schicht-Richtung, Nearest-Neighbor, obere Stufe mit/ohne Träger.
 
-### P1-04 · Test-Schematic per litemapy `todo`
+### P1-04 · Test-Schematic per litemapy `done`
 `tools/gen_test_schematic.py` erzeugt `test/blockclasses.litematic`: 12×12×6 mit je einer Zeile pro Blockklasse (Vollblock, Slab unten/oben, Stairs 4 Richtungen, Log 3 Achsen, Wall-Torch 4 Seiten, Button, Lever, Trapdoor offen/zu, Door, Rail gerade/Kurve, Carpet, Glazed Terracotta 4 Richtungen, Water source, Fence).
 - AK1 Skript läuft mit `pip install litemapy`, Datei lädt in Litematica ohne Fehler
 - AK2 Skript druckt Materialliste (Item → Anzahl) für Vergleich in P1-02
+
+Stand 2026-09-15: Skript + `tools/requirements.txt` (`litemapy==0.11.0b0`), erzeugte Datei `test/blockclasses.litematic` (965 B) ist eingecheckt, damit In-Game-Tests kein Python brauchen. Layout (im Docstring des Skripts): Steinsockel y=0–1 mit eingefasstem Wasser-Quellblock, Reihen auf y=2, alle abhängigen Blöcke mit echtem Träger (Wandfackeln an Brettern/Terrakotta, Wand-Knopf/-Hebel an Terrakotta/Stamm, obere Stufe neben Stamm, Schienenkurve mit zwei Nachbarn). Abweichungen vom Ticket: Carpet und Fence teilen sich Reihe z=11 (13 Klassen passen nicht in 12 Reihen, Wasser liegt im Sockel), das Schienen-Endstück der Kurve steht in der Tür-Reihe. Datenversion 4903 (MC 26.2) und Litematic-Version 7 (Litematica 0.28.8) gesetzt, damit Litematica keinen Datafixer anwirft.
+- AK1 erfüllt, aber **außerhalb des Spiels** geprüft: Skript lief in einem venv nach `pip install litemapy`; die Datei wurde in einer Scratch-JVM mit Litematicas eigenem Parser (`LitematicaSchematic.readFromData`, 0.28.8, MC-Registries per Bootstrap) fehlerfrei gelesen – Version 7, Datenversion 4903, alle Properties erhalten, 339 Nicht-Luft-Blöcke. Laden im echten Client steht noch aus (Render-Crash, P0-05) → mit P1-02 AK2 nachholen.
+- AK2 erfüllt: Skript druckt 15 Items / 337 Stück (u. a. stone 287, oak_planks 13, rail 6, torch 4, water_bucket 1). `MaterialRules.totals` über die von Litematica gelesenen Blockzustände ergibt exakt dieselbe Liste.
 
 ### P1-05 · `.sf preview` `todo`
 Blockanzahl, Cluster-Anzahl, Materialliste (gesamt / fehlend im Inventar), Warnungen (Y<-64, Bounding Box > Renderdistanz, Blöcke mit `Unsupported`-SolveResult).
@@ -202,7 +206,7 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6: `Missing uniform Globals (should be UNIFORM_BUFFER)` beim Textur-Atlas-Tick (siehe P0-05-Notiz); klären, ob Treiber-, MaLiLib- oder Meteor-Kombination
 - P0-05 AK1–3 in-game nachholen, sobald der Litematica-Render-Crash gelöst ist (oder in einer Nicht-Dev-Instanz)
 - P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert und Litematica im Client läuft
-- P1-02 AK2–4 in-game nachholen (Materialliste == Litematica, gedreht+gespiegelt Bounding Box, deaktivierte Sub-Region), nach P1-04/P1-05
+- P1-02 AK2–4 in-game nachholen (Materialliste == Litematica, gedreht+gespiegelt Bounding Box, deaktivierte Sub-Region), nach P1-05; dabei auch prüfen, dass `test/blockclasses.litematic` im echten Client lädt (P1-04 AK1). Erwartete Liste: `python tools/gen_test_schematic.py`
 - `snapshot()` bei großen Placements: eine Map-Zeile pro Position inkl. Luft, kein Größenlimit → Speicherbedarf messen, ggf. Limit oder Luft nur bei `ignoreAir=false` speichern
 - `WorkPlanner`: Nearest-Neighbor ist O(n²) je Schicht – bei sehr großen Flächen (z. B. 1000×1000, 40 000 Cluster pro Schicht) spürbar langsam; ggf. Gitter-Ringsuche
 - `WorkPlanner`: halbe Stufe in der Welt + Ziel Doppelstufe wird als falscher Block gewertet (SKIP/BREAK) statt als „zweite Hälfte platzieren“
