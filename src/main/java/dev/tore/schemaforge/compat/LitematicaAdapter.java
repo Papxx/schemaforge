@@ -4,13 +4,25 @@ import dev.tore.schemaforge.SchemaForgeAddon;
 import dev.tore.schemaforge.compat.ProbeReport.Line;
 import dev.tore.schemaforge.compat.SignatureCheck.Result;
 import dev.tore.schemaforge.compat.SignatureCheck.Spec;
+import dev.tore.schemaforge.core.MaterialRules;
 import dev.tore.schemaforge.core.SchematicSnapshot;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Mirror;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.lang.invoke.MethodHandle;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * The only class allowed to touch {@code fi.dy.masa.*}; all fragile accesses go through
@@ -42,23 +54,36 @@ public final class LitematicaAdapter {
     private static final Spec GET_ALL_PLACEMENTS = new Spec(PLACEMENT_MANAGER, false, "java.util.List",
         List.of("getAllSchematicsPlacements", "getAllSchematicPlacements"), List.of());
     private static final Spec GET_PLACEMENT_NAME = Spec.virtual(PLACEMENT, "java.lang.String", "getName");
+    private static final Spec GET_ORIGIN = Spec.virtual(PLACEMENT, BLOCK_POS, "getOrigin");
+    private static final Spec GET_ROTATION = Spec.virtual(PLACEMENT, ROTATION, "getRotation");
+    private static final Spec GET_MIRROR = Spec.virtual(PLACEMENT, MIRROR, "getMirror");
+    private static final Spec GET_ENABLED_REGIONS = Spec.virtual(PLACEMENT, "com.google.common.collect.ImmutableMap", "getEnabledRelativeSubRegionPlacements");
+    private static final Spec GET_SCHEMATIC = Spec.virtual(PLACEMENT, SCHEMATIC, "getSchematic");
+    private static final Spec GET_AREA_SIZE = Spec.virtual(SCHEMATIC, BLOCK_POS, "getAreaSize", "java.lang.String");
+    private static final Spec GET_REGION_POS = Spec.virtual(SUB_REGION, BLOCK_POS, "getPos");
+    private static final Spec GET_REGION_ROTATION = Spec.virtual(SUB_REGION, ROTATION, "getRotation");
+    private static final Spec GET_REGION_MIRROR = Spec.virtual(SUB_REGION, MIRROR, "getMirror");
+    private static final Spec GET_SCHEMATIC_WORLD = Spec.staticMethod(WORLD_HANDLER, WORLD_SCHEMATIC, "getSchematicWorld");
 
     /** Every method from docs/NOTES-litematica-api.md, in the order of that table (rows 2–14). */
     private static final List<Spec> BARITONE_SIGNATURES = List.of(
         GET_PLACEMENT_MANAGER,
         GET_ALL_PLACEMENTS,
         GET_PLACEMENT_NAME,
-        Spec.virtual(PLACEMENT, BLOCK_POS, "getOrigin"),
-        Spec.virtual(PLACEMENT, ROTATION, "getRotation"),
-        Spec.virtual(PLACEMENT, MIRROR, "getMirror"),
-        Spec.virtual(PLACEMENT, "com.google.common.collect.ImmutableMap", "getEnabledRelativeSubRegionPlacements"),
-        Spec.virtual(PLACEMENT, SCHEMATIC, "getSchematic"),
-        Spec.virtual(SCHEMATIC, BLOCK_POS, "getAreaSize", "java.lang.String"),
-        Spec.virtual(SUB_REGION, BLOCK_POS, "getPos"),
-        Spec.virtual(SUB_REGION, ROTATION, "getRotation"),
-        Spec.virtual(SUB_REGION, MIRROR, "getMirror"),
-        Spec.staticMethod(WORLD_HANDLER, WORLD_SCHEMATIC, "getSchematicWorld")
+        GET_ORIGIN,
+        GET_ROTATION,
+        GET_MIRROR,
+        GET_ENABLED_REGIONS,
+        GET_SCHEMATIC,
+        GET_AREA_SIZE,
+        GET_REGION_POS,
+        GET_REGION_ROTATION,
+        GET_REGION_MIRROR,
+        GET_SCHEMATIC_WORLD
     );
+
+    /** Not used by Baritone: a disabled placement is missing from the schematic world (NOTES-litematica-api.md row 16, P1-02). */
+    private static final Spec IS_PLACEMENT_ENABLED = Spec.virtual(PLACEMENT, "boolean", "isEnabled");
 
     /** Resolves Litematica's AUTO setting (Servux → V3, Carpet → V2, else SLAB_ONLY). */
     private static final Spec EFFECTIVE_PROTOCOL = Spec.staticMethod(PLACEMENT_HANDLER, PROTOCOL, "getEffectiveProtocolVersion");
@@ -86,6 +111,7 @@ public final class LitematicaAdapter {
         List<Line> lines = new ArrayList<>();
         lines.add(Line.ok("class Litematica", "found"));
         for (Spec spec : BARITONE_SIGNATURES) lines.add(signatureLine(loader, spec));
+        lines.add(signatureLine(loader, IS_PLACEMENT_ENABLED));
         lines.add(worldSchematicLine(loader));
         lines.add(configuredProtocolLine(loader));
         lines.add(effectiveProtocolLine(loader));
@@ -119,9 +145,75 @@ public final class LitematicaAdapter {
         }
     }
 
-    /** Sub-regions resolved, mirror/rotation applied. Implemented in P1-02. */
+    /**
+     * Target state of the first placement called {@code name}: every enabled sub-region, with placement and sub-region
+     * mirror/rotation applied. Block states are read from Litematica's schematic world, which already holds them
+     * transformed; positions in schematic chunks that are not loaded are left out (and logged).
+     * Client thread only. Empty if Litematica is missing or incompatible, the name is unknown, the placement is
+     * disabled or has no enabled sub-region; never throws (P1-02).
+     */
     public static Optional<SchematicSnapshot> snapshot(String name) {
-        throw new UnsupportedOperationException("P1-02");
+        Optional<PlacementHandles> placementHandles = Resolved.PLACEMENTS;
+        Optional<SnapshotHandles> snapshotHandles = Resolved.SNAPSHOT;
+        if (placementHandles.isEmpty() || snapshotHandles.isEmpty()) return Optional.empty();
+        PlacementHandles p = placementHandles.get();
+        SnapshotHandles s = snapshotHandles.get();
+        try {
+            Object placement = findPlacement(p, name);
+            if (placement == null) {
+                SchemaForgeAddon.LOG.info("No Litematica placement named '{}'", name);
+                return Optional.empty();
+            }
+            if (!(boolean) s.isEnabled().invoke(placement)) {
+                SchemaForgeAddon.LOG.info("Litematica placement '{}' is disabled", name);
+                return Optional.empty();
+            }
+            if (!(s.getSchematicWorld().invoke() instanceof Level world)) {
+                SchemaForgeAddon.LOG.warn("Litematica's schematic world is not available");
+                return Optional.empty();
+            }
+
+            BlockPos origin = (BlockPos) s.getOrigin().invoke(placement);
+            Mirror mirror = (Mirror) s.getMirror().invoke(placement);
+            Rotation rotation = (Rotation) s.getRotation().invoke(placement);
+            Object schematic = s.getSchematic().invoke(placement);
+            Map<?, ?> regions = (Map<?, ?>) s.getEnabledRegions().invoke(placement);
+
+            PlacementTransform.Box bounds = null;
+            Long2ObjectMap<BlockState> blocks = new Long2ObjectOpenHashMap<>();
+            long unloaded = 0;
+            for (Map.Entry<?, ?> entry : regions.entrySet()) {
+                String regionName = (String) entry.getKey();
+                Object region = entry.getValue();
+                BlockPos areaSize = (BlockPos) s.getAreaSize().invoke(schematic, regionName);
+                if (areaSize == null) {
+                    SchemaForgeAddon.LOG.warn("Placement '{}': sub-region '{}' has no size, skipped", name, regionName);
+                    continue;
+                }
+                PlacementTransform.Box box = PlacementTransform.subRegionBox(origin, mirror, rotation,
+                    (BlockPos) s.getRegionPos().invoke(region),
+                    (Mirror) s.getRegionMirror().invoke(region),
+                    (Rotation) s.getRegionRotation().invoke(region),
+                    areaSize);
+                bounds = bounds == null ? box : bounds.union(box);
+                unloaded += readBox(world, box, blocks);
+            }
+            if (bounds == null) {
+                SchemaForgeAddon.LOG.info("Litematica placement '{}' has no enabled sub-region", name);
+                return Optional.empty();
+            }
+            if (unloaded > 0) {
+                SchemaForgeAddon.LOG.warn("Placement '{}': {} positions lie in schematic chunks that are not loaded and are missing from the snapshot",
+                    name, unloaded);
+            }
+            return Optional.of(new SchematicSnapshot(name, bounds.min(), bounds.max(),
+                Long2ObjectMaps.unmodifiable(blocks), Collections.unmodifiableMap(MaterialRules.totals(blocks.values()))));
+        } catch (VirtualMachineError e) {
+            throw e;
+        } catch (Throwable t) {
+            SchemaForgeAddon.LOG.warn("Reading Litematica placement '{}' failed", name, t);
+            return Optional.empty();
+        }
     }
 
     /** Selection bounds for the buildOnlySelection setting. No ticket yet, see Backlog in docs/TASKS.md. */
@@ -135,6 +227,36 @@ public final class LitematicaAdapter {
      */
     public static Optional<EasyPlaceProtocol> detectedProtocol() {
         return effectiveProtocolName(loader()).map(LitematicaAdapter::mapProtocol);
+    }
+
+    private static Object findPlacement(PlacementHandles handles, String name) throws Throwable {
+        Object manager = handles.getManager().invoke();
+        if (manager == null) return null;
+        List<?> placements = (List<?>) handles.getAll().invoke(manager);
+        if (placements == null) return null;
+        for (Object placement : placements) {
+            if (name.equals(handles.getName().invoke(placement))) return placement;
+        }
+        return null;
+    }
+
+    /** Copies every block of {@code box} into {@code blocks}; returns how many positions were skipped as unloaded. */
+    private static long readBox(Level world, PlacementTransform.Box box, Long2ObjectMap<BlockState> blocks) {
+        long unloaded = 0;
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int x = box.min().getX(); x <= box.max().getX(); x++) {
+            for (int z = box.min().getZ(); z <= box.max().getZ(); z++) {
+                if (!world.hasChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z))) {
+                    unloaded += box.max().getY() - box.min().getY() + 1;
+                    continue;
+                }
+                for (int y = box.min().getY(); y <= box.max().getY(); y++) {
+                    pos.set(x, y, z);
+                    blocks.put(pos.asLong(), world.getBlockState(pos));
+                }
+            }
+        }
+        return unloaded;
     }
 
     private static Line signatureLine(ClassLoader loader, Spec spec) {
@@ -207,28 +329,36 @@ public final class LitematicaAdapter {
     private record PlacementHandles(MethodHandle getManager, MethodHandle getAll, MethodHandle getName) {
     }
 
+    private record SnapshotHandles(
+        MethodHandle isEnabled, MethodHandle getOrigin, MethodHandle getRotation, MethodHandle getMirror,
+        MethodHandle getEnabledRegions, MethodHandle getSchematic, MethodHandle getAreaSize,
+        MethodHandle getRegionPos, MethodHandle getRegionRotation, MethodHandle getRegionMirror,
+        MethodHandle getSchematicWorld
+    ) {
+    }
+
     /** Resolved once on first use (holder idiom); signature problems are logged a single time. */
     private static final class Resolved {
         static final boolean PRESENT = SignatureCheck.load(loader(), MAIN_CLASS).isPresent();
-        static final Optional<PlacementHandles> PLACEMENTS = resolvePlacements();
+        static final Optional<PlacementHandles> PLACEMENTS = resolve("placements",
+            List.of(GET_PLACEMENT_MANAGER, GET_ALL_PLACEMENTS, GET_PLACEMENT_NAME),
+            h -> new PlacementHandles(h.get(0), h.get(1), h.get(2)));
+        static final Optional<SnapshotHandles> SNAPSHOT = resolve("snapshots",
+            List.of(IS_PLACEMENT_ENABLED, GET_ORIGIN, GET_ROTATION, GET_MIRROR, GET_ENABLED_REGIONS, GET_SCHEMATIC,
+                GET_AREA_SIZE, GET_REGION_POS, GET_REGION_ROTATION, GET_REGION_MIRROR, GET_SCHEMATIC_WORLD),
+            h -> new SnapshotHandles(h.get(0), h.get(1), h.get(2), h.get(3), h.get(4), h.get(5),
+                h.get(6), h.get(7), h.get(8), h.get(9), h.get(10)));
 
-        private static Optional<PlacementHandles> resolvePlacements() {
+        /** All specs or nothing: one missing handle disables the feature and is logged once. */
+        private static <T> Optional<T> resolve(String feature, List<Spec> specs, Function<List<MethodHandle>, T> factory) {
             if (!PRESENT) return Optional.empty();
-            List<Result> results = List.of(
-                SignatureCheck.resolve(loader(), GET_PLACEMENT_MANAGER),
-                SignatureCheck.resolve(loader(), GET_ALL_PLACEMENTS),
-                SignatureCheck.resolve(loader(), GET_PLACEMENT_NAME)
-            );
+            List<Result> results = specs.stream().map(spec -> SignatureCheck.resolve(loader(), spec)).toList();
             List<String> problems = results.stream().filter(r -> !r.isFound()).map(Result::problem).toList();
             if (!problems.isEmpty()) {
-                SchemaForgeAddon.LOG.warn("Litematica is installed but incompatible, placements unavailable: {}", problems);
+                SchemaForgeAddon.LOG.warn("Litematica is installed but incompatible, {} unavailable: {}", feature, problems);
                 return Optional.empty();
             }
-            return Optional.of(new PlacementHandles(
-                results.get(0).handle().orElseThrow(),
-                results.get(1).handle().orElseThrow(),
-                results.get(2).handle().orElseThrow()
-            ));
+            return Optional.of(factory.apply(results.stream().map(r -> r.handle().orElseThrow()).toList()));
         }
     }
 }

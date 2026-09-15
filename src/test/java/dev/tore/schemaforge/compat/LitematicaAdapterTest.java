@@ -23,6 +23,11 @@ class LitematicaAdapterTest {
     }
 
     @Test
+    void withoutLitematicaSnapshotIsEmpty() {
+        assertTrue(assertDoesNotThrow(() -> LitematicaAdapter.snapshot("any")).isEmpty());
+    }
+
+    @Test
     void withoutLitematicaProbeReportsMissing() {
         ProbeReport.Section section = assertDoesNotThrow(LitematicaAdapter::probe);
         assertEquals(ProbeReport.Status.MISSING, section.status());

@@ -53,12 +53,16 @@ Stand 2026-09-13: `isPresent()` (Hauptklasse ladbar) und `placementNames()` (Han
 
 Stand 2026-09-15: Auf Anweisung des Nutzers `done` gesetzt. AK1 wurde **nicht** in-game geprüft, sondern als Backlog-Punkt übernommen (mit P1-05 nachholen).
 
-### P1-02 · `LitematicaAdapter.snapshot()` `todo`
+### P1-02 · `LitematicaAdapter.snapshot()` `done`
 Alle aktivierten Sub-Regionen, Mirror/Rotation von Placement **und** Sub-Region anwenden (Transformationslogik wie in `LitematicaHelper.transform`, eigenständig implementiert), Blöcke via MethodHandle aus der Schematic-World lesen, `materialTotals` berechnen.
 - AK1 Unit-Test: Transformation für alle 4 Rotationen × 3 Mirror-Zustände gegen handverifizierte Tabelle
 - AK2 Manuell: Test-Schematic (P1-04) unrotiert → `materialTotals` == Litematica-Materialliste (Abweichung 0)
 - AK3 Manuell: gleiches Placement um 90° gedreht + gespiegelt → Bounding Box stimmt mit Litematica-Rendering überein
 - AK4 Manuell: eine Sub-Region deaktiviert → deren Blöcke fehlen im Snapshot
+
+Stand 2026-09-15: `compat/PlacementTransform` (Mirror/Rotation, Sub-Region-Box), `core/MaterialRules` (Regeln von Litematicas `MaterialCache`), `LitematicaAdapter.snapshot()` (erstes Placement mit dem Namen; deaktiviertes Placement → leer; Positionen in nicht geladenen Schematic-Chunks werden weggelassen und geloggt; neue Signatur `SchematicPlacement.isEnabled()` auch in `.sf doctor`). ARCHITECTURE.md §1/§2/§4 und NOTES-litematica-api.md ergänzt. Build + 43 Tests grün.
+- AK1 erfüllt: `PlacementTransformTest` (12er-Tabelle + Box-Fälle). Zusätzlich einmalig per Reflection gegen Litematica-0.28.8-`PositionUtils` abgeglichen: 3084 Fälle, 0 Abweichungen (nicht Teil der Test-Suite, weil Litematica im Test-Runtime fehlen muss).
+- AK2–AK4 **nicht** in-game geprüft: Test-Schematic (P1-04) fehlt noch, `.sf preview` (P1-05) auch, und der Dev-Client crasht mit Litematica (siehe P0-05). `MaterialRulesTest` deckt die Blockklassen der Test-Schematic ab (Stufen, Tür, Wandfackel, Wasser …), ersetzt aber nicht den Abgleich mit der Litematica-Liste. Auf Anweisung des Nutzers `done`; AK2–4 → Backlog.
 
 ### P1-03 · `WorkPlanner.plan()` `todo`
 Diff Soll/Ist über `WorldView`; Filterregeln; Priorität: Support-Blöcke (voll) vor abhängigen (Torch, Button, Rail, Carpet, Door, Sign, Ladder, Vine, Slab-Top ohne Träger); Clustering in Würfel `clusterSize`; Reihenfolge nach `layerAxis`/`layerAscending`, innerhalb einer Schicht Nearest-Neighbor ab Spielerposition.
@@ -195,6 +199,9 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - Dev-Client-Crash mit Litematica 0.28.8/MaLiLib 0.29.6: `Missing uniform Globals (should be UNIFORM_BUFFER)` beim Textur-Atlas-Tick (siehe P0-05-Notiz); klären, ob Treiber-, MaLiLib- oder Meteor-Kombination
 - P0-05 AK1–3 in-game nachholen, sobald der Litematica-Render-Crash gelöst ist (oder in einer Nicht-Dev-Instanz)
 - P1-01 AK1 in-game nachholen (zwei Placements → beide Namen), sobald `.sf preview` (P1-05) existiert und Litematica im Client läuft
+- P1-02 AK2–4 in-game nachholen (Materialliste == Litematica, gedreht+gespiegelt Bounding Box, deaktivierte Sub-Region), nach P1-04/P1-05
+- `snapshot()` bei großen Placements: eine Map-Zeile pro Position inkl. Luft, kein Größenlimit → Speicherbedarf messen, ggf. Limit oder Luft nur bei `ignoreAir=false` speichern
+- `snapshot()` sieht nur Schematic-Chunks in Spielernähe; Chunks, die Litematicas Daemon schon geladen, aber noch nicht befüllt hat (`ChunkSchematicState`), liefern evtl. Luft – prüfen, ob das in-game vorkommt
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen

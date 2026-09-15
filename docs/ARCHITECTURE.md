@@ -13,6 +13,7 @@ dev.tore.schemaforge
 │   ├── SignatureCheck               löst Methoden per Name/Typ-Strings als MethodHandle auf (ohne Klassen-Import)
 │   ├── EasyPlaceProtocol            enum NONE / V2_CARPET / V3_SERVUX
 │   ├── LitematicaAdapter            einzige Klasse mit fi.dy.masa.*-Zugriff (MethodHandles)
+│   ├── PlacementTransform           package-private, reine Mathematik: Mirror/Rotation, Sub-Region-Box (P1-02)
 │   └── BaritoneBridge               einzige Klasse mit baritone.api.*-Zugriff
 ├── core/
 │   ├── ActionBudget                 Pakete pro Tick begrenzen
@@ -25,6 +26,7 @@ dev.tore.schemaforge
 │   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
+│   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
 │   ├── ContainerType                enum CHEST / BARREL / SHULKER / ENDER_CHEST (WorldView, ContainerIndex)
 │   └── view/  WorldView, InventoryView, PlayerView   (kleine Interfaces für Testbarkeit)
 ├── modules/
@@ -42,10 +44,20 @@ dev.tore.schemaforge
 // Soll-Zustand einer Litematica-Platzierung, bereits transformiert in Weltkoordinaten.
 public record SchematicSnapshot(
     String placementName,
-    BlockPos min, BlockPos max,                    // Bounding Box in Weltkoordinaten
+    BlockPos min, BlockPos max,                    // Bounding Box aller aktivierten Sub-Regionen in Weltkoordinaten (inklusiv)
     Long2ObjectMap<BlockState> blocks,             // key = BlockPos.asLong(); Air-Einträge enthalten, wenn Schematic Luft verlangt
-    Map<Item, Integer> materialTotals              // Item → Anzahl, aus blocks abgeleitet
+    Map<Item, Integer> materialTotals              // Item → Anzahl, aus blocks abgeleitet (MaterialRules.totals)
 ) {}
+// P1-02: blocks enthält nur Positionen, deren Chunk in Litematicas Schematic-World geladen ist.
+// Fehlende Keys heißen „unbekannt“, nicht „Luft“ – der Planner darf dort nichts tun.
+
+// P1-02. Regeln wie Litematicas Materialliste (MaterialCache), eigenständig implementiert.
+public final class MaterialRules {
+    public record Requirement(Item item, int count) {}
+    public static List<Requirement> required(BlockState state);       // leer: Luft, obere Tür-/Pflanzenhälfte, Bett-Kopf, fließende Flüssigkeit, Portale …
+                                                                      // zwei Einträge: bepflanzter Blumentopf, gefüllter Kessel
+    public static Map<Item, Integer> totals(Iterable<BlockState> states);
+}
 
 public enum TaskKind { PLACE, BREAK, FLUID, SKIP }
 
@@ -122,7 +134,10 @@ public final class LitematicaAdapter {
     public static boolean isPresent();
     public static ProbeReport.Section probe();                       // welche Signaturen gefunden wurden
     public static List<String> placementNames();                     // alle geladenen Placements
-    public static Optional<SchematicSnapshot> snapshot(String name); // Sub-Regionen aufgelöst, Mirror/Rotation angewandt
+    public static Optional<SchematicSnapshot> snapshot(String name); // Sub-Regionen aufgelöst, Mirror/Rotation angewandt;
+                                                                     // nur Client-Thread; erstes Placement mit dem Namen;
+                                                                     // leer: Litematica fehlt/inkompatibel, Name unbekannt,
+                                                                     // Placement deaktiviert, keine aktivierte Sub-Region
     public static Optional<BlockPos[]> selectionBounds();            // für buildOnlySelection
     public static Optional<EasyPlaceProtocol> detectedProtocol();    // NONE, V2_CARPET, V3_SERVUX
 }
