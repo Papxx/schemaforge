@@ -232,6 +232,20 @@ public final class PlacementSolver {
     //  Kein Kandidat → NeedsSupport(unter dem Ziel; bei oberer Hälfte über dem Ziel; bei X/Z-Pillar westlich/nördlich).
     //  sneak immer true (verhindert, dass ein Klick eine GUI/Tür des Nachbarn bedient). yaw/pitch = Blick auf hitVec.
     //  proto wird erst in P5-06 ausgewertet.
+    // P2-04 Regeln (abhängige Blöcke, Vanilla 26.2 nachgelesen). Kein Airplace außer Teppich (Klick auf die Zielposition
+    //  ordnet getNearestLookingDirections nach Blick → nicht planbar). Klick auf einen Nachbarn setzt dessen Richtung zuerst.
+    //  Torch/RedstoneTorch stehend: Seite UP · WallTorch/RedstoneWallTorch, Ladder, WallSign (FACING F): Seite F
+    //  Button/Lever (FaceAttached): FLOOR → UP, CEILING → DOWN, beide FACING = Blickrichtung (requiresRealRotation) · WALL → Seite FACING
+    //    POWERED=true → Unsupported („switched on“)
+    //  TrapDoor: seitlich Seite = FACING, Hälfte über Treffer-Y · oder UP (BOTTOM) / DOWN (TOP) mit FACING = Gegenrichtung des Blicks
+    //  Door untere Hälfte: Seite UP auf Block darunter, FACING = Blickrichtung; Scharnier: erzwingen Nachbarn (volle Blöcke/Türen
+    //    links/rechts, wie DoorBlock.getHinge) ein anderes → Unsupported; sonst Treffer um 0.25 nach links (LEFT, gegen Uhrzeigersinn
+    //    von FACING) bzw. rechts (RIGHT) verschoben · Block über dem Ziel nicht ersetzbar → Unsupported · obere Hälfte: kein Klick,
+    //    NeedsSupport(unten) – entsteht mit der unteren
+    //  Door/TrapDoor OPEN=true ohne POWERED → Unsupported („opened by hand“)
+    //  Carpet: jede Seite, Airplace erlaubt; Block darunter Luft → NeedsSupport(unten)
+    //  StandingSign ROTATION r: Seite UP, Yaw = r·22,5° − 180° (±11°, RotationSegment) · Hängeschilder, Schienen u. a. weiter Unsupported
+    //  NeedsSupport bei Wandblöcken = Nachbar hinter FACING, bei CEILING/TrapDoor TOP = oben, sonst unten.
     public static Optional<String> unsupportedReason(BlockState target); // unabhängig von Welt/Spieler; leer = Regel vorhanden (für .sf preview)
 }
 

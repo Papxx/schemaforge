@@ -15,6 +15,19 @@ import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.ButtonBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.RedstoneWallTorchBlock;
+import net.minecraft.world.level.block.StandingSignBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.WallSignBlock;
+import net.minecraft.world.level.block.WallTorchBlock;
+import net.minecraft.world.level.block.state.properties.AttachFace;
+import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.block.state.properties.SlabType;
@@ -34,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * P2-02 AK1–AK3. Expected outcomes are checked against the vanilla 26.2 placement formulas
+ * P2-02 AK1–AK3 and P2-04 AK1. Expected outcomes are checked against the vanilla 26.2 placement formulas
  * ({@link #vanillaBottomHalf}, {@link Direction#fromYRot}), not against the solver's own constants.
  */
 class PlacementSolverTest {
@@ -152,14 +165,194 @@ class PlacementSolverTest {
     }
 
     @Test
-    void dependentAndUnknownBlocksAreUnsupported() {
+    void unknownBlocksAreUnsupported() {
         FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
-        assertInstanceOf(SolveResult.Unsupported.class, solve(solver(true), Blocks.TORCH.defaultBlockState(), floor));
-        assertInstanceOf(SolveResult.Unsupported.class, solve(solver(true), Blocks.OAK_DOOR.defaultBlockState(), floor));
-        assertEquals(Optional.of("no rule for TorchBlock"), PlacementSolver.unsupportedReason(Blocks.TORCH.defaultBlockState()));
+        assertInstanceOf(SolveResult.Unsupported.class, solve(solver(true), Blocks.RAIL.defaultBlockState(), floor));
+        assertEquals(Optional.of("no rule for RailBlock"), PlacementSolver.unsupportedReason(Blocks.RAIL.defaultBlockState()));
         assertEquals(Optional.empty(), PlacementSolver.unsupportedReason(STONE));
         assertInstanceOf(SolveResult.Unsupported.class,
             solve(solver(true), new BlockTask(POS, STONE, STONE, TaskKind.SKIP, 0, SkipReason.NEVER_PLACE), floor));
+    }
+
+    // --- P2-04 AK1: dependent blocks, one expectation per class ----------------------------------------
+
+    @Test
+    void standingTorchesClickTheFloorTop() {
+        for (BlockState torch : List.of(Blocks.TORCH.defaultBlockState(), Blocks.REDSTONE_TORCH.defaultBlockState(), Blocks.SOUL_TORCH.defaultBlockState())) {
+            PlacementPlan plan = ok(solver(true), torch, new FakeWorld().set(POS.below(), STONE).set(POS.north(), STONE));
+            assertEquals(POS.below(), plan.clickPos(), torch.toString());
+            assertEquals(Direction.UP, plan.clickFace());
+            assertFalse(plan.requiresRealRotation());
+            // Only a wall: clicking it would make a wall torch, so there is no click for a standing one.
+            assertEquals(new SolveResult.NeedsSupport(POS.below()), solve(solver(true), torch, new FakeWorld().set(POS.north(), STONE)));
+            assertEquals(new SolveResult.NeedsSupport(POS.below()), solve(solver(false), torch, new FakeWorld()));
+        }
+    }
+
+    @Test
+    void wallBlocksClickTheWallTheyHangOn() {
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            List<BlockState> states = List.of(
+                Blocks.WALL_TORCH.defaultBlockState().setValue(WallTorchBlock.FACING, facing),
+                Blocks.REDSTONE_WALL_TORCH.defaultBlockState().setValue(RedstoneWallTorchBlock.FACING, facing),
+                Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, facing),
+                Blocks.OAK_WALL_SIGN.defaultBlockState().setValue(WallSignBlock.FACING, facing),
+                wallButton(facing));
+            BlockPos wall = POS.relative(facing.getOpposite());
+            // Floor and all four walls present: only the wall behind FACING yields the state.
+            FakeWorld world = new FakeWorld().set(POS.below(), STONE);
+            for (Direction d : Direction.Plane.HORIZONTAL) world.set(POS.relative(d), STONE);
+            FakePlayer eyeInFront = new FakePlayer(Vec3.atCenterOf(POS).add(facing.getStepX() * 0.3, 0.1, facing.getStepZ() * 0.3), 4.5);
+            for (BlockState state : states) {
+                PlacementPlan plan = ok(solver(true), state, world, eyeInFront);
+                assertEquals(wall, plan.clickPos(), state.toString());
+                // Vanilla: the clicked neighbour comes first in getNearestLookingDirections, so FACING = clicked face.
+                assertEquals(facing, plan.clickFace(), state.toString());
+                assertFalse(plan.requiresRealRotation());
+                assertEquals(new SolveResult.NeedsSupport(wall), solve(solver(false), state, new FakeWorld().set(POS.below(), STONE)), state.toString());
+            }
+        }
+    }
+
+    @Test
+    void floorAndCeilingButtonsAndLeversTakeFacingFromYaw() {
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            BlockState floorLever = Blocks.LEVER.defaultBlockState()
+                .setValue(LeverBlock.FACE, AttachFace.FLOOR).setValue(LeverBlock.FACING, facing);
+            PlacementPlan onFloor = ok(solver(true), floorLever, new FakeWorld().set(POS.below(), STONE));
+            assertEquals(Direction.UP, onFloor.clickFace());
+            assertTrue(onFloor.requiresRealRotation());
+            assertEquals(facing, Direction.fromYRot(onFloor.yaw()), "yaw " + onFloor.yaw());
+
+            BlockState ceilingButton = Blocks.STONE_BUTTON.defaultBlockState()
+                .setValue(ButtonBlock.FACE, AttachFace.CEILING).setValue(ButtonBlock.FACING, facing);
+            FakePlayer below = new FakePlayer(new Vec3(0.5, 63.0, -2.0), 4.5);
+            PlacementPlan onCeiling = ok(solver(true), ceilingButton, new FakeWorld().set(POS.above(), STONE).set(POS.below(), STONE), below);
+            assertEquals(POS.above(), onCeiling.clickPos());
+            assertEquals(Direction.DOWN, onCeiling.clickFace());
+            assertEquals(facing, Direction.fromYRot(onCeiling.yaw()));
+            assertEquals(new SolveResult.NeedsSupport(POS.above()), solve(solver(true), ceilingButton, new FakeWorld().set(POS.below(), STONE)));
+        }
+        BlockState on = Blocks.LEVER.defaultBlockState().setValue(LeverBlock.POWERED, true);
+        assertEquals(Optional.of("switched on"), PlacementSolver.unsupportedReason(on));
+    }
+
+    @Test
+    void trapdoorFromSideOrFromFloorAndCeiling() {
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            BlockState bottom = Blocks.OAK_TRAPDOOR.defaultBlockState().setValue(TrapDoorBlock.FACING, facing).setValue(TrapDoorBlock.HALF, Half.BOTTOM);
+            BlockState top = bottom.setValue(TrapDoorBlock.HALF, Half.TOP);
+            BlockPos wall = POS.relative(facing.getOpposite());
+            FakePlayer eyeInFront = new FakePlayer(Vec3.atCenterOf(POS).add(facing.getStepX() * 1.5, 0.1, facing.getStepZ() * 1.5), 4.5);
+
+            for (BlockState state : List.of(bottom, top)) {
+                PlacementPlan side = ok(solver(true), state, new FakeWorld().set(wall, STONE), eyeInFront);
+                // Vanilla: side click → FACING = clicked face, HALF = TOP if the hit is above the middle.
+                assertEquals(facing, side.clickFace(), state.toString());
+                assertEquals(state == top, side.hitVec().y - POS.getY() > 0.5, state.toString());
+                assertFalse(side.requiresRealRotation());
+            }
+
+            PlacementPlan floor = ok(solver(true), bottom, new FakeWorld().set(POS.below(), STONE));
+            assertEquals(Direction.UP, floor.clickFace());
+            // Vanilla: vertical click → FACING = opposite of the horizontal look direction.
+            assertEquals(facing, Direction.fromYRot(floor.yaw()).getOpposite(), "yaw " + floor.yaw());
+            assertTrue(floor.requiresRealRotation());
+
+            assertEquals(new SolveResult.NeedsSupport(POS.above()), solve(solver(true), top, new FakeWorld().set(POS.below(), STONE)));
+        }
+        BlockState open = Blocks.OAK_TRAPDOOR.defaultBlockState().setValue(TrapDoorBlock.OPEN, true);
+        assertEquals(Optional.of("opened by hand"), PlacementSolver.unsupportedReason(open));
+        assertEquals(Optional.empty(), PlacementSolver.unsupportedReason(open.setValue(TrapDoorBlock.POWERED, true)));
+    }
+
+    @Test
+    void doorLowerHalfFacingFromYawAndHingeFromClick() {
+        for (Direction facing : Direction.Plane.HORIZONTAL) {
+            for (DoorHingeSide hinge : DoorHingeSide.values()) {
+                BlockState door = door(facing, hinge, DoubleBlockHalf.LOWER);
+                PlacementPlan plan = ok(solver(true), door, new FakeWorld().set(POS.below(), STONE));
+                assertEquals(POS.below(), plan.clickPos());
+                assertEquals(Direction.UP, plan.clickFace());
+                assertTrue(plan.requiresRealRotation());
+                assertEquals(facing, Direction.fromYRot(plan.yaw()), "yaw " + plan.yaw());
+                assertEquals(hinge, vanillaClickHinge(facing, plan.hitVec()), facing + " " + hinge + " hit " + plan.hitVec());
+            }
+        }
+    }
+
+    @Test
+    void doorUpperHalfBlockedAboveAndForcedHinge() {
+        FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
+        BlockState upper = door(Direction.NORTH, DoorHingeSide.LEFT, DoubleBlockHalf.UPPER);
+        assertEquals(new SolveResult.NeedsSupport(POS.below()), solve(solver(true), upper, floor));
+        assertEquals(Optional.empty(), PlacementSolver.unsupportedReason(upper));
+
+        assertEquals(new SolveResult.Unsupported("door blocked above"), solve(solver(true),
+            door(Direction.NORTH, DoorHingeSide.LEFT, DoubleBlockHalf.LOWER), new FakeWorld().set(POS.below(), STONE).set(POS.above(), STONE)));
+
+        // Facing north, left is west: two full blocks on the left force hinge LEFT (vanilla balance < 0).
+        FakeWorld leftWall = new FakeWorld().set(POS.below(), STONE).set(POS.west(), STONE).set(POS.west().above(), STONE);
+        assertInstanceOf(SolveResult.Ok.class, solve(solver(true), door(Direction.NORTH, DoorHingeSide.LEFT, DoubleBlockHalf.LOWER), leftWall));
+        assertEquals(new SolveResult.Unsupported("hinge forced by neighbours"),
+            solve(solver(true), door(Direction.NORTH, DoorHingeSide.RIGHT, DoubleBlockHalf.LOWER), leftWall));
+
+        assertEquals(Optional.of("opened by hand"),
+            PlacementSolver.unsupportedReason(door(Direction.NORTH, DoorHingeSide.LEFT, DoubleBlockHalf.LOWER).setValue(DoorBlock.OPEN, true)));
+    }
+
+    @Test
+    void carpetNeedsAnyBlockBelow() {
+        BlockState carpet = Blocks.CARPET.white().defaultBlockState();
+        PlacementPlan plan = ok(solver(true), carpet, new FakeWorld().set(POS.below(), STONE));
+        assertEquals(Direction.UP, plan.clickFace());
+        assertFalse(plan.requiresRealRotation());
+
+        assertEquals(new SolveResult.NeedsSupport(POS.below()), solve(solver(true), carpet, new FakeWorld().set(POS.west(), STONE)));
+        // Below is not empty but has no full top face (fence post): the carpet survives, a side click places it.
+        FakeWorld fenceBelow = new FakeWorld().set(POS.below(), Blocks.OAK_FENCE.defaultBlockState()).set(POS.west(), STONE);
+        assertEquals(POS.west(), ok(solver(true), carpet, fenceBelow).clickPos());
+    }
+
+    @Test
+    void standingSignRotationFromYawSegment() {
+        for (int rotation = 0; rotation < 16; rotation++) {
+            BlockState sign = Blocks.OAK_SIGN.defaultBlockState().setValue(StandingSignBlock.ROTATION, rotation);
+            PlacementPlan plan = ok(solver(true), sign, new FakeWorld().set(POS.below(), STONE));
+            assertEquals(Direction.UP, plan.clickFace());
+            assertTrue(plan.requiresRealRotation());
+            // Vanilla StandingSignBlock: ROTATION = RotationSegment.convertToSegment(yaw + 180).
+            assertEquals(rotation, RotationSegment.convertToSegment(plan.yaw() + 180f), "yaw " + plan.yaw());
+        }
+    }
+
+    @Test
+    void dependentBlocksNeverAirplace() {
+        List<BlockState> targets = List.of(Blocks.TORCH.defaultBlockState(), Blocks.LADDER.defaultBlockState(),
+            Blocks.OAK_TRAPDOOR.defaultBlockState(), door(Direction.NORTH, DoorHingeSide.LEFT, DoubleBlockHalf.LOWER),
+            Blocks.OAK_SIGN.defaultBlockState(), wallButton(Direction.NORTH));
+        for (BlockState target : targets) {
+            assertInstanceOf(SolveResult.NeedsSupport.class, solve(solver(false), target, new FakeWorld()), target.toString());
+        }
+    }
+
+    private static BlockState wallButton(Direction facing) {
+        return Blocks.OAK_BUTTON.defaultBlockState().setValue(ButtonBlock.FACE, AttachFace.WALL).setValue(ButtonBlock.FACING, facing);
+    }
+
+    private static BlockState door(Direction facing, DoorHingeSide hinge, DoubleBlockHalf half) {
+        return Blocks.OAK_DOOR.defaultBlockState().setValue(DoorBlock.FACING, facing).setValue(DoorBlock.HINGE, hinge).setValue(DoorBlock.HALF, half);
+    }
+
+    /** Vanilla DoorBlock.getHinge when no neighbour forces a side: the click position inside the door column decides. */
+    private static DoorHingeSide vanillaClickHinge(Direction facing, Vec3 hit) {
+        int stepX = facing.getStepX();
+        int stepZ = facing.getStepZ();
+        double clickX = hit.x - POS.getX();
+        double clickZ = hit.z - POS.getZ();
+        return (stepX >= 0 || !(clickZ < 0.5)) && (stepX <= 0 || !(clickZ > 0.5)) && (stepZ >= 0 || !(clickX > 0.5)) && (stepZ <= 0 || !(clickX < 0.5))
+            ? DoorHingeSide.LEFT
+            : DoorHingeSide.RIGHT;
     }
 
     // --- AK2 -------------------------------------------------------------------------------------------

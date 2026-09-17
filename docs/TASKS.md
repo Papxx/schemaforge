@@ -137,10 +137,14 @@ Stand 2026-09-17: `Printer` arbeitet einen Cluster in Durchläufen ab: `WorkPlan
 - AK1/AK2 **offen**: nicht in-game prüfbar, solange kein Modul den Printer tickt (P2-07 registriert `SchemaPrinter`). Nachholen mit P2-07, siehe Backlog.
 - AK3 erfüllt: `PrinterTest` – außer Reichweite nach 3 Ticks aufgegeben, nie gesendet; abgelehnte Platzierung höchstens 3× gesendet; neuer Besuch (`startCluster`) setzt Versuche zurück; fehlendes Item, fehlende Regel (Fackel) und fehlende Sicht werden nie gesendet. Außerdem: 1 Platzierung pro Tick bei Limit 1, Reihenfolge = Task-Reihenfolge, leeres Budget zählt keine Versuche, Log-Zeilenformat und Datei-Append. `WorkPlannerTest` um zwei `refresh`-Tests ergänzt.
 
-### P2-04 · `PlacementSolver` abhängige Blöcke `todo`
+### P2-04 · `PlacementSolver` abhängige Blöcke `done`
 Wall-Torch, Torch, Button, Lever, Trapdoor, Door (untere Hälfte, hinge), Carpet, Ladder, Sign, Glazed Terracotta.
 - AK1 Unit-Tests wie P2-02
 - AK2 Manuell: entsprechende Zeilen der Test-Schematic → Verifier 0 Fehler
+
+Stand 2026-09-17: Regeln aus Vanilla-26.2 gelesen (Vineflower: `StandingAndWallBlockItem`, `BlockPlaceContext.getNearestLookingDirections`, `TorchBlock`/`WallTorchBlock`/`RedstoneWallTorchBlock`, `FaceAttachedHorizontalDirectionalBlock`, `TrapDoorBlock`, `DoorBlock.getHinge`, `CarpetBlock`, `LadderBlock`, `StandingSignBlock`/`WallSignBlock`). Kernpunkt: Klick auf einen Nachbarn stellt dessen Richtung an die erste Stelle der Blickrichtungen, daher sind Wandblöcke ohne Rotation planbar; Klick auf die Zielposition selbst hängt vom Blick ab, deshalb kein Airplace für abhängige Blöcke (außer Teppich). Stehende Fackel/Schild nur von oben, Wandfackel/Leiter/Wandschild/Wandknopf auf die Wand hinter FACING, Boden-/Deckenknopf und -hebel mit Yaw-Quadrant, Falltür seitlich (Hälfte über Treffer-Y) oder von oben/unten mit Gegen-Yaw, Tür von oben mit Yaw und Treffer um 0,25 zur Scharnierseite verschoben; Scharnier, das die Nachbarn erzwingen, wird wie in `getHinge` nachgerechnet. Schild-Rotation über `RotationSegment` (±11°). Neu `Unsupported`: offene Tür/Falltür ohne Strom („opened by hand“), eingeschalteter Hebel/Knopf („switched on“), Tür mit belegtem Block darüber, erzwungenes falsches Scharnier. Obere Türhälfte → `NeedsSupport(unten)`. Glazed Terracotta war schon in P2-02 erledigt. ARCHITECTURE.md §4 vorher ergänzt. Build + 103 Tests grün.
+- AK1 erfüllt: `PlacementSolverTest` +9 Tests (stehende Fackeln, Wandblöcke × 4 Richtungen × 5 Arten, Boden-/Deckenknopf/-hebel, Falltür seitlich/Boden/Decke, Tür 4 Richtungen × 2 Scharniere, Tür oben/blockiert/erzwungenes Scharnier, Teppich, Schild 16 Rotationen, kein Airplace). Erwartungen gegen die Vanilla-Formeln (`Direction.fromYRot`, `RotationSegment.convertToSegment(yaw+180)`, Scharnier-Ausdruck aus `DoorBlock.getHinge`), nicht gegen Solver-Konstanten. Bisherige Tests, die Fackeln als „nicht unterstützt“ nutzten, verwenden jetzt Schienen (P5-04).
+- AK2 **offen**: in-game erst mit P2-07 prüfbar, siehe Backlog.
 
 ### P2-05 · `MaterialManager` Basis `todo`
 Bedarf aus Cluster, Hotbar-Swap nur in `allowedHotbarSlots`, Fehlbestand-Event.
@@ -249,6 +253,11 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - P2-03 AK1 (Vollblöcke/Slabs/Stairs/Logs → Verifier 0 Fehler, Singleplayer) und AK2 (VANILLA_LEGIT, 1 Block/Tick, keine Ghost-Blocks auf lokalem Paper) in-game nachholen, sobald P2-07 den Printer ans Modul hängt; dabei auch prüfen, dass Sneak-Klick an Kisten/Türen keine GUI öffnet und der Server danach nicht schleichend bleibt
 - `Printer`: eine Platzierung = eine Budget-Einheit; mehrere Rotationen im selben Tick schicken bei Meteor je ein Zusatzpaket (NOTES-meteor-api Punkt 3), dazu 2 Input-Pakete für Sneak – bei `blocksPerTick` > 1 (P5-05) Paketzahl messen und ggf. mitzählen
 - `Printer`: gesendete Platzierung wird geloggt, auch wenn der Server sie ablehnt; `PlacementLog` ggf. erst nach Bestätigung (nächster refresh) schreiben – für Undo (P5-01) klären
+
+- P2-04 AK2 in-game nachholen (Zeilen Fackeln/Knöpfe/Hebel/Falltüren/Türen/Teppiche/Leitern/Schilder der Test-Schematic → Verifier 0 Fehler), zusammen mit P2-03 AK1/AK2 nach P2-07
+- `PlacementSolver`: Schild platzieren öffnet beim Server den Schild-Editor (Client-Screen) – Printer muss den Screen schließen oder `.sf`-Setting „sign text“ bekommen; in-game mit P2-07 prüfen
+- `PlacementSolver`: offene Türen/Falltüren und eingeschaltete Hebel sind `Unsupported`; nach dem Platzieren per Rechtsklick umschalten wäre möglich (Pakete über ActionBudget)
+- `PlacementSolver`: Hängeschilder, Schienen (P5-04), Druckplatten, Pflanzen, Redstone-Staub/Repeater/Comparator, Banner, Ranken haben noch keine Regel
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen

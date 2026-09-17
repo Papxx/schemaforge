@@ -134,11 +134,11 @@ class PrinterTest {
         assertTrue(noItem.printer.clusterDone());
         assertTrue(noItem.actions.sent.isEmpty());
 
-        // A torch has no rule until P2-04.
-        Setup torch = new Setup(Map.of(new BlockPos(0, 64, 0), Blocks.TORCH.defaultBlockState()), 1);
-        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) torch.tick();
-        assertTrue(torch.printer.clusterDone());
-        assertTrue(torch.actions.sent.isEmpty());
+        // Rails have no rule until P5-04.
+        Setup rail = new Setup(Map.of(new BlockPos(0, 64, 0), Blocks.RAIL.defaultBlockState()), 1);
+        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) rail.tick();
+        assertTrue(rail.printer.clusterDone());
+        assertTrue(rail.actions.sent.isEmpty());
     }
 
     @Test

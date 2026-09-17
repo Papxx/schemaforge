@@ -17,3 +17,4 @@
 | 2026-09-15 | P1-02 AK2 | TEILWEISE | Gleicher Lauf: Preview-Materialliste == Skript-Liste (15 / 337). Abgleich mit Litematicas eigener Materialliste (GUI) nicht gemacht; AK3/AK4 weiter offen |
 | 2026-09-15 | P2-01, P2-02 | NICHT GETESTET | Nur Unit-Tests (`ActionBudgetTest`, `SchemaPrinterTest`, `PlacementSolverTest`); in-game erst sichtbar, wenn Printer (P2-03) und Modul (P2-07) existieren |
 | 2026-09-17 | P2-03 | NICHT GETESTET | Nur Unit-Tests (`PrinterTest` 11, `WorkPlannerTest` +2 für `refresh`); AK3 damit erfüllt. AK1/AK2 in-game erst möglich, wenn P2-07 den Printer ans Modul hängt → Backlog |
+| 2026-09-17 | P2-04 | NICHT GETESTET | Nur Unit-Tests (`PlacementSolverTest` 23, davon 9 neu); AK1 damit erfüllt. AK2 in-game erst mit P2-07 → Backlog |

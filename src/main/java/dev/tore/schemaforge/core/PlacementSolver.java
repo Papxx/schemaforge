@@ -11,16 +11,33 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ButtonBlock;
+import net.minecraft.world.level.block.CarpetBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FaceAttachedHorizontalDirectionalBlock;
 import net.minecraft.world.level.block.FenceBlock;
 import net.minecraft.world.level.block.GlazedTerracottaBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.RedstoneTorchBlock;
+import net.minecraft.world.level.block.RedstoneWallTorchBlock;
 import net.minecraft.world.level.block.RotatedPillarBlock;
 import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.StandingSignBlock;
+import net.minecraft.world.level.block.TorchBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.WallBlock;
+import net.minecraft.world.level.block.WallSignBlock;
+import net.minecraft.world.level.block.WallTorchBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.AttachFace;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoorHingeSide;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.phys.Vec3;
 
@@ -28,19 +45,24 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
  * BlockState to PlacementPlan (click face, hit point, look direction, hand item).
- * Base block classes since P2-02 (rules in ARCHITECTURE.md §4, derived from vanilla 26.2 {@code getStateForPlacement});
- * dependent blocks follow in P2-04.
+ * Base block classes since P2-02, dependent blocks since P2-04 (rules in ARCHITECTURE.md §4, derived from vanilla 26.2
+ * {@code getStateForPlacement}).
  */
 public final class PlacementSolver {
     /** Yaw may deviate this far from a cardinal direction and still count as facing it (vanilla boundary is 45°). */
     private static final float QUADRANT_MARGIN = 44f;
+    /** Yaw may deviate this far from a sign rotation segment (vanilla boundary is 11.25°). */
+    private static final float SEGMENT_MARGIN = 11f;
     /** Hit height above the block bottom for side clicks that must produce a bottom or top half. */
     private static final double LOWER_HIT = 0.25;
     private static final double UPPER_HIT = 0.75;
+    /** Horizontal shift of the hit point on a door's floor that selects the hinge side. */
+    private static final double HINGE_SHIFT = 0.25;
 
     private final SolverConfig cfg;
 
@@ -60,24 +82,26 @@ public final class PlacementSolver {
     public SolveResult solve(BlockTask task, WorldView world, PlayerView player, EasyPlaceProtocol proto) {
         // proto is evaluated from P5-06 on; until then every rotation-dependent block needs a real rotation.
         if (task.kind() != TaskKind.PLACE) return new SolveResult.Unsupported("not a PLACE task: " + task.kind());
-        Optional<Rule> found = rule(task.target());
-        if (found.isEmpty()) return new SolveResult.Unsupported(unsupportedReason(task.target()).orElse("no rule"));
-        Rule rule = found.get();
+        Optional<String> unsupported = unsupportedReason(task.target());
+        if (unsupported.isPresent()) return new SolveResult.Unsupported(unsupported.get());
+        Rule rule = rule(task.target()).orElseThrow();
+        BlockPos pos = task.pos();
+        Optional<SolveResult> blocked = blocked(task.target(), pos, world);
+        if (blocked.isPresent()) return blocked.get();
         Item item = task.target().getBlock().asItem();
 
-        BlockPos pos = task.pos();
         List<Candidate> candidates = new ArrayList<>();
         for (Direction toNeighbour : Direction.values()) {
             Direction clickFace = toNeighbour.getOpposite();
             if (!rule.faceAllowed().test(clickFace)) continue;
             BlockPos neighbour = pos.relative(toNeighbour);
             if (!isSupport(world.getBlockState(neighbour), clickFace)) continue;
-            candidates.add(candidate(neighbour, clickFace, hitOnFace(pos, toNeighbour, rule.half()), true, player));
+            candidates.add(candidate(neighbour, clickFace, hitOnFace(pos, toNeighbour, rule), true, player));
         }
-        if (!cfg.clickAdjacentOnly() && world.getBlockState(pos).canBeReplaced()) {
+        if (rule.airplace() && !cfg.clickAdjacentOnly() && world.getBlockState(pos).canBeReplaced()) {
             for (Direction face : Direction.values()) {
                 if (!rule.faceAllowed().test(face)) continue;
-                candidates.add(candidate(pos, face, hitOnFace(pos, face, rule.half()), false, player));
+                candidates.add(candidate(pos, face, hitOnFace(pos, face, rule), false, player));
             }
         }
 
@@ -91,9 +115,10 @@ public final class PlacementSolver {
         Vec3 look = c.hitVec().subtract(player.eyePos());
         float yaw = (float) Math.toDegrees(Math.atan2(-look.x, look.z));
         float pitch = (float) -Math.toDegrees(Math.atan2(look.y, look.horizontalDistance()));
-        if (rule.playerFacing().isPresent()) yaw = intoQuadrant(yaw, rule.playerFacing().get());
+        Optional<YawTarget> yawTarget = rule.yaw().apply(c.clickFace());
+        if (yawTarget.isPresent()) yaw = yawTarget.get().clamp(yaw);
         return new SolveResult.Ok(new PlacementPlan(c.clickPos(), c.clickFace(), c.hitVec(), Mth.wrapDegrees(yaw), pitch,
-            rule.playerFacing().isPresent(), item, true));
+            yawTarget.isPresent(), item, true));
     }
 
     /**
@@ -101,23 +126,53 @@ public final class PlacementSolver {
      * empty if a rule exists. Used by {@code .sf preview} for its warning line.
      */
     public static Optional<String> unsupportedReason(BlockState target) {
-        if (target.getBlock().asItem() == Items.AIR) return Optional.of("no item");
-        if (target.getBlock() instanceof SlabBlock && target.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) {
-            return Optional.of("double slab");
+        Block block = target.getBlock();
+        if (block.asItem() == Items.AIR) return Optional.of("no item");
+        if (block instanceof SlabBlock && target.getValue(SlabBlock.TYPE) == SlabType.DOUBLE) return Optional.of("double slab");
+        if ((block instanceof DoorBlock || block instanceof TrapDoorBlock)
+            && target.getValue(BlockStateProperties.OPEN) && !target.getValue(BlockStateProperties.POWERED)) {
+            return Optional.of("opened by hand");
         }
-        if (rule(target).isEmpty()) return Optional.of("no rule for " + target.getBlock().getClass().getSimpleName());
+        if ((block instanceof ButtonBlock || block instanceof LeverBlock) && target.getValue(BlockStateProperties.POWERED)) {
+            return Optional.of("switched on");
+        }
+        if (rule(target).isEmpty()) return Optional.of("no rule for " + block.getClass().getSimpleName());
         return Optional.empty();
     }
 
     /**
-     * @param faceAllowed  which clicked faces yield the target state
-     * @param half         hit height for side clicks
-     * @param playerFacing horizontal direction the player must look in, if the state depends on it
+     * @param faceAllowed which clicked faces yield the target state
+     * @param half        hit height for side clicks
+     * @param yaw         look direction the player needs for a clicked face, if the state depends on it
+     * @param airplace    whether clicking the target position itself yields the state
+     * @param hitShift    direction to move the hit point by {@link #HINGE_SHIFT} within the face (door hinge)
      */
-    private record Rule(Predicate<Direction> faceAllowed, HitHeight half, Optional<Direction> playerFacing) {
+    private record Rule(Predicate<Direction> faceAllowed, HitHeight half, Function<Direction, Optional<YawTarget>> yaw,
+                        boolean airplace, Optional<Direction> hitShift) {
+        /** Base block: every allowed face needs the same (or no) look direction, airplace possible. */
+        static Rule base(Predicate<Direction> faceAllowed, HitHeight half, Optional<YawTarget> yaw) {
+            return new Rule(faceAllowed, half, _ -> yaw, true, Optional.empty());
+        }
+
+        /** Dependent block clicked on exactly one kind of face, no airplace. */
+        static Rule attached(Predicate<Direction> faceAllowed, Optional<YawTarget> yaw) {
+            return new Rule(faceAllowed, HitHeight.MIDDLE, _ -> yaw, false, Optional.empty());
+        }
     }
 
     private enum HitHeight { MIDDLE, LOWER, UPPER }
+
+    /** Yaw the player must look at: {@code center} ± {@code margin} degrees. */
+    private record YawTarget(float center, float margin) {
+        /** The player looks in {@code facing} ({@code Direction.fromYRot}). */
+        static Optional<YawTarget> facing(Direction facing) {
+            return Optional.of(new YawTarget(facing.toYRot(), QUADRANT_MARGIN));
+        }
+
+        float clamp(float yaw) {
+            return center + Mth.clamp(Mth.wrapDegrees(yaw - center), -margin, margin);
+        }
+    }
 
     private record Candidate(BlockPos clickPos, Direction clickFace, Vec3 hitVec, boolean neighbour, boolean usable, double distance) {
     }
@@ -127,35 +182,122 @@ public final class PlacementSolver {
         if (block.asItem() == Items.AIR) return Optional.empty();
         if (block instanceof SlabBlock) {
             return switch (target.getValue(SlabBlock.TYPE)) {
-                case BOTTOM -> Optional.of(new Rule(face -> face != Direction.DOWN, HitHeight.LOWER, Optional.empty()));
-                case TOP -> Optional.of(new Rule(face -> face != Direction.UP, HitHeight.UPPER, Optional.empty()));
+                case BOTTOM -> Optional.of(Rule.base(face -> face != Direction.DOWN, HitHeight.LOWER, Optional.empty()));
+                case TOP -> Optional.of(Rule.base(face -> face != Direction.UP, HitHeight.UPPER, Optional.empty()));
                 case DOUBLE -> Optional.empty();
             };
         }
         if (block instanceof StairBlock) {
             boolean top = target.getValue(StairBlock.HALF) == Half.TOP;
-            return Optional.of(new Rule(face -> face != (top ? Direction.UP : Direction.DOWN),
-                top ? HitHeight.UPPER : HitHeight.LOWER, Optional.of(target.getValue(StairBlock.FACING))));
+            return Optional.of(Rule.base(face -> face != (top ? Direction.UP : Direction.DOWN),
+                top ? HitHeight.UPPER : HitHeight.LOWER, YawTarget.facing(target.getValue(StairBlock.FACING))));
         }
         if (block instanceof RotatedPillarBlock) {
             Direction.Axis axis = target.getValue(RotatedPillarBlock.AXIS);
-            return Optional.of(new Rule(face -> face.getAxis() == axis, HitHeight.MIDDLE, Optional.empty()));
+            return Optional.of(Rule.base(face -> face.getAxis() == axis, HitHeight.MIDDLE, Optional.empty()));
         }
         if (block instanceof GlazedTerracottaBlock) {
-            return Optional.of(new Rule(_ -> true, HitHeight.MIDDLE, Optional.of(target.getValue(HorizontalDirectionalBlock.FACING).getOpposite())));
+            return Optional.of(Rule.base(_ -> true, HitHeight.MIDDLE, YawTarget.facing(target.getValue(HorizontalDirectionalBlock.FACING).getOpposite())));
         }
         if (block instanceof AbstractFurnaceBlock) {
-            return Optional.of(new Rule(_ -> true, HitHeight.MIDDLE, Optional.of(target.getValue(AbstractFurnaceBlock.FACING).getOpposite())));
+            return Optional.of(Rule.base(_ -> true, HitHeight.MIDDLE, YawTarget.facing(target.getValue(AbstractFurnaceBlock.FACING).getOpposite())));
         }
         if (block instanceof FenceBlock || block instanceof WallBlock || isPlain(target)) {
-            return Optional.of(new Rule(_ -> true, HitHeight.MIDDLE, Optional.empty()));
+            return Optional.of(Rule.base(_ -> true, HitHeight.MIDDLE, Optional.empty()));
+        }
+        return dependentRule(target);
+    }
+
+    /** P2-04: blocks that hang on a neighbour, a floor or a ceiling. */
+    private static Optional<Rule> dependentRule(BlockState target) {
+        Block block = target.getBlock();
+        // Wall variants extend the standing torch classes, so they are checked first.
+        if (block instanceof WallTorchBlock || block instanceof RedstoneWallTorchBlock || block instanceof LadderBlock || block instanceof WallSignBlock) {
+            Direction facing = target.getValue(HorizontalDirectionalBlock.FACING);
+            return Optional.of(Rule.attached(face -> face == facing, Optional.empty()));
+        }
+        if (block instanceof TorchBlock || block instanceof RedstoneTorchBlock) {
+            return Optional.of(Rule.attached(face -> face == Direction.UP, Optional.empty()));
+        }
+        if (block instanceof FaceAttachedHorizontalDirectionalBlock) {
+            Direction facing = target.getValue(HorizontalDirectionalBlock.FACING);
+            return Optional.of(switch (target.getValue(FaceAttachedHorizontalDirectionalBlock.FACE)) {
+                case FLOOR -> Rule.attached(face -> face == Direction.UP, YawTarget.facing(facing));
+                case CEILING -> Rule.attached(face -> face == Direction.DOWN, YawTarget.facing(facing));
+                case WALL -> Rule.attached(face -> face == facing, Optional.empty());
+            });
+        }
+        if (block instanceof TrapDoorBlock) {
+            Direction facing = target.getValue(HorizontalDirectionalBlock.FACING);
+            boolean top = target.getValue(TrapDoorBlock.HALF) == Half.TOP;
+            Direction vertical = top ? Direction.DOWN : Direction.UP;
+            return Optional.of(new Rule(
+                face -> face.getAxis().isHorizontal() ? face == facing : face == vertical,
+                top ? HitHeight.UPPER : HitHeight.LOWER,
+                face -> face.getAxis().isHorizontal() ? Optional.empty() : YawTarget.facing(facing.getOpposite()),
+                false, Optional.empty()));
+        }
+        if (block instanceof DoorBlock) {
+            // The upper half has no click of its own; it appears together with the lower half (NeedsSupport below).
+            if (target.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
+                return Optional.of(Rule.attached(_ -> false, Optional.empty()));
+            }
+            Direction facing = target.getValue(HorizontalDirectionalBlock.FACING);
+            Direction shift = target.getValue(DoorBlock.HINGE) == DoorHingeSide.LEFT ? facing.getCounterClockWise() : facing.getClockWise();
+            return Optional.of(new Rule(face -> face == Direction.UP, HitHeight.MIDDLE, _ -> YawTarget.facing(facing), false, Optional.of(shift)));
+        }
+        if (block instanceof CarpetBlock) {
+            return Optional.of(Rule.base(_ -> true, HitHeight.MIDDLE, Optional.empty()));
+        }
+        if (block instanceof StandingSignBlock) {
+            float yaw = RotationSegment.convertToDegrees(target.getValue(StandingSignBlock.ROTATION)) - 180f;
+            return Optional.of(Rule.attached(face -> face == Direction.UP, Optional.of(new YawTarget(yaw, SEGMENT_MARGIN))));
         }
         return Optional.empty();
     }
 
+    /** World conditions that make a placement fail regardless of the click (P2-04). */
+    private static Optional<SolveResult> blocked(BlockState target, BlockPos pos, WorldView world) {
+        Block block = target.getBlock();
+        if (block instanceof CarpetBlock && world.getBlockState(pos.below()).isAir()) {
+            return Optional.of(new SolveResult.NeedsSupport(pos.below()));
+        }
+        if (block instanceof DoorBlock && target.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+            if (!world.getBlockState(pos.above()).canBeReplaced()) return Optional.of(new SolveResult.Unsupported("door blocked above"));
+            Optional<DoorHingeSide> forced = forcedHinge(pos, target.getValue(HorizontalDirectionalBlock.FACING), world);
+            if (forced.isPresent() && forced.get() != target.getValue(DoorBlock.HINGE)) {
+                return Optional.of(new SolveResult.Unsupported("hinge forced by neighbours"));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Hinge side that vanilla {@code DoorBlock.getHinge} derives from the neighbours; empty if the click position decides. */
+    private static Optional<DoorHingeSide> forcedHinge(BlockPos pos, Direction facing, WorldView world) {
+        Direction left = facing.getCounterClockWise();
+        Direction right = facing.getClockWise();
+        int balance = (fullBlock(world, pos.relative(left)) ? -1 : 0)
+            + (fullBlock(world, pos.above().relative(left)) ? -1 : 0)
+            + (fullBlock(world, pos.relative(right)) ? 1 : 0)
+            + (fullBlock(world, pos.above().relative(right)) ? 1 : 0);
+        boolean doorLeft = lowerDoor(world.getBlockState(pos.relative(left)));
+        boolean doorRight = lowerDoor(world.getBlockState(pos.relative(right)));
+        if ((doorLeft && !doorRight) || balance > 0) return Optional.of(DoorHingeSide.RIGHT);
+        if ((doorRight && !doorLeft) || balance < 0) return Optional.of(DoorHingeSide.LEFT);
+        return Optional.empty();
+    }
+
+    private static boolean fullBlock(WorldView world, BlockPos pos) {
+        return world.getBlockState(pos).isCollisionShapeFullBlock(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
+    }
+
+    private static boolean lowerDoor(BlockState state) {
+        return state.getBlock() instanceof DoorBlock && state.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER;
+    }
+
     /**
      * Full block without properties besides waterlogged: every click yields the target. Non-full blocks without
-     * properties (torches, flowers, carpets) need a specific support and are left to P2-04.
+     * properties (flowers, pressure plates) need a specific support and have no rule.
      */
     private static boolean isPlain(BlockState target) {
         return target.getProperties().stream().allMatch(p -> p == BlockStateProperties.WATERLOGGED)
@@ -167,17 +309,24 @@ public final class PlacementSolver {
         return !state.isAir() && !state.canBeReplaced() && state.isFaceSturdy(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, clickFace);
     }
 
-    /** Point on the face of {@code pos} in direction {@code face}; side faces get the hit height of the wanted half. */
-    private static Vec3 hitOnFace(BlockPos pos, Direction face, HitHeight half) {
+    /**
+     * Point on the face of {@code pos} in direction {@code face}; side faces get the hit height of the wanted half,
+     * the rule's hit shift moves the point within the face.
+     */
+    private static Vec3 hitOnFace(BlockPos pos, Direction face, Rule rule) {
         Vec3 center = Vec3.atCenterOf(pos);
         double y = face.getAxis().isHorizontal()
-            ? pos.getY() + switch (half) {
+            ? pos.getY() + switch (rule.half()) {
                 case MIDDLE -> 0.5;
                 case LOWER -> LOWER_HIT;
                 case UPPER -> UPPER_HIT;
             }
             : center.y + face.getStepY() * 0.5;
-        return new Vec3(center.x + face.getStepX() * 0.5, y, center.z + face.getStepZ() * 0.5);
+        Vec3 hit = new Vec3(center.x + face.getStepX() * 0.5, y, center.z + face.getStepZ() * 0.5);
+        return rule.hitShift()
+            .filter(shift -> shift.getAxis() != face.getAxis())
+            .map(shift -> hit.add(shift.getStepX() * HINGE_SHIFT, shift.getStepY() * HINGE_SHIFT, shift.getStepZ() * HINGE_SHIFT))
+            .orElse(hit);
     }
 
     private Candidate candidate(BlockPos clickPos, Direction clickFace, Vec3 hitVec, boolean neighbour, PlayerView player) {
@@ -188,16 +337,17 @@ public final class PlacementSolver {
         return new Candidate(clickPos, clickFace, hitVec, neighbour, usable, distance);
     }
 
-    private static float intoQuadrant(float yaw, Direction facing) {
-        float center = facing.toYRot();
-        return center + Mth.clamp(Mth.wrapDegrees(yaw - center), -QUADRANT_MARGIN, QUADRANT_MARGIN);
-    }
-
     private static BlockPos missingSupport(BlockState target, BlockPos pos) {
         Block block = target.getBlock();
         boolean upperHalf = (block instanceof SlabBlock && target.getValue(SlabBlock.TYPE) == SlabType.TOP)
-            || (block instanceof StairBlock && target.getValue(StairBlock.HALF) == Half.TOP);
+            || (block instanceof StairBlock && target.getValue(StairBlock.HALF) == Half.TOP)
+            || (block instanceof TrapDoorBlock && target.getValue(TrapDoorBlock.HALF) == Half.TOP)
+            || (block instanceof FaceAttachedHorizontalDirectionalBlock && target.getValue(FaceAttachedHorizontalDirectionalBlock.FACE) == AttachFace.CEILING);
         if (upperHalf) return pos.above();
+        boolean onWall = block instanceof WallTorchBlock || block instanceof RedstoneWallTorchBlock || block instanceof LadderBlock
+            || block instanceof WallSignBlock
+            || (block instanceof FaceAttachedHorizontalDirectionalBlock && target.getValue(FaceAttachedHorizontalDirectionalBlock.FACE) == AttachFace.WALL);
+        if (onWall) return pos.relative(target.getValue(HorizontalDirectionalBlock.FACING).getOpposite());
         if (block instanceof RotatedPillarBlock) {
             return switch (target.getValue(RotatedPillarBlock.AXIS)) {
                 case X -> pos.west();
