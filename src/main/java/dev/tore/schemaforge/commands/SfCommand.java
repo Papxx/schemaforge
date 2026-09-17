@@ -17,5 +17,10 @@ public final class SfCommand extends Command {
     public void build(LiteralArgumentBuilder<ClientSuggestionProvider> builder) {
         builder.then(DoctorCommand.build());
         builder.then(PreviewCommand.build());
+        builder.then(StartCommand.build());
+        builder.then(ControlCommands.pause());
+        builder.then(ControlCommands.resume());
+        builder.then(ControlCommands.stop());
+        builder.then(StatusCommand.build());
     }
 }

@@ -2,42 +2,377 @@ package dev.tore.schemaforge.modules;
 
 import dev.tore.schemaforge.SchemaForgeAddon;
 import dev.tore.schemaforge.compat.BaritoneBridge;
+import dev.tore.schemaforge.compat.LitematicaAdapter;
+import dev.tore.schemaforge.compat.McInventoryView;
+import dev.tore.schemaforge.compat.McPlayerView;
+import dev.tore.schemaforge.compat.McPrintActions;
+import dev.tore.schemaforge.compat.McWorldView;
 import dev.tore.schemaforge.core.ActionBudget;
 import dev.tore.schemaforge.core.AdditiveOnlyGuard;
+import dev.tore.schemaforge.core.BuildSession;
+import dev.tore.schemaforge.core.HotbarSlots;
+import dev.tore.schemaforge.core.MaterialManager;
+import dev.tore.schemaforge.core.PlacementLog;
+import dev.tore.schemaforge.core.PlacementSolver;
+import dev.tore.schemaforge.core.PlanConfig;
+import dev.tore.schemaforge.core.Printer;
+import dev.tore.schemaforge.core.SchematicSnapshot;
+import dev.tore.schemaforge.core.SolverConfig;
+import dev.tore.schemaforge.core.Substitutes;
+import dev.tore.schemaforge.core.WorkPlanner;
+import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.settings.BlockListSetting;
+import meteordevelopment.meteorclient.settings.BoolSetting;
+import meteordevelopment.meteorclient.settings.DoubleSetting;
+import meteordevelopment.meteorclient.settings.EnumSetting;
+import meteordevelopment.meteorclient.settings.IntSetting;
+import meteordevelopment.meteorclient.settings.ProvidedStringSetting;
+import meteordevelopment.meteorclient.settings.Setting;
+import meteordevelopment.meteorclient.settings.SettingGroup;
+import meteordevelopment.meteorclient.settings.StringListSetting;
+import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
- * Main module holding all printer settings and the build state machine.
- * Shell from P0-04; the tick hook exists since P2-01, settings and behavior follow in P2-07, which also registers the module.
+ * Main module (P2-07): holds all settings, builds the views for one run and ticks the {@link BuildSession}.
+ * Started by toggling the module or {@code .sf start}; the state machine itself lives in core (ARCHITECTURE.md §5).
  */
 public final class SchemaPrinter extends Module {
-    /** One action per tick until the blocksPerTick setting exists (P2-07). */
-    private final ActionBudget budget = new ActionBudget(() -> 1);
+    /** Directory for the placement log (ARCHITECTURE.md §6). */
+    private static final Path FOLDER = MeteorClient.FOLDER.toPath().resolve("schemaforge");
+
+    private final SettingGroup sgGeneral = settings.getDefaultGroup();
+    private final SettingGroup sgOrder = settings.createGroup("Order");
+    private final SettingGroup sgFilters = settings.createGroup("Filters");
+    private final SettingGroup sgPlacement = settings.createGroup("Placement");
+    private final SettingGroup sgDebug = settings.createGroup("Debug");
+
+    private final Setting<String> placement = sgGeneral.add(new ProvidedStringSetting.Builder()
+        .name("placement")
+        .description("Name of the Litematica placement to print; empty uses the only loaded one.")
+        .defaultValue("")
+        .supplier(() -> LitematicaAdapter.placementNames().stream().distinct().toArray(String[]::new))
+        .build());
+
+    private final Setting<Boolean> additiveOnly = sgGeneral.add(new BoolSetting.Builder()
+        .name("additive-only")
+        .description("Never break blocks: wrong blocks are reported as mismatched and Baritone may not break either.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> ignoreAir = sgGeneral.add(new BoolSetting.Builder()
+        .name("ignore-air")
+        .description("Ignore positions where the schematic wants air.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Direction.Axis> layerAxis = sgOrder.add(new EnumSetting.Builder<Direction.Axis>()
+        .name("layer-axis")
+        .description("Axis the build advances along.")
+        .defaultValue(Direction.Axis.Y)
+        .build());
+
+    private final Setting<Boolean> layerAscending = sgOrder.add(new BoolSetting.Builder()
+        .name("layer-ascending")
+        .description("Build layers from low to high along the layer axis.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Integer> clusterSize = sgOrder.add(new IntSetting.Builder()
+        .name("cluster-size")
+        .description("Edge length in blocks of one work cluster.")
+        .defaultValue(5)
+        .range(3, 16)
+        .sliderRange(3, 16)
+        .build());
+
+    private final Setting<List<Block>> skipIfWorldIs = sgFilters.add(new BlockListSetting.Builder()
+        .name("skip-if-world-is")
+        .description("Positions holding one of these blocks are left alone.")
+        .build());
+
+    private final Setting<List<Block>> treatAsAir = sgFilters.add(new BlockListSetting.Builder()
+        .name("treat-as-air")
+        .description("Blocks counted as air, in the world and in the schematic.")
+        .defaultValue(Blocks.SHORT_GRASS, Blocks.TALL_GRASS)
+        .build());
+
+    private final Setting<List<Block>> neverPlace = sgFilters.add(new BlockListSetting.Builder()
+        .name("never-place")
+        .description("Blocks the printer never places.")
+        .defaultValue(Blocks.TNT)
+        .build());
+
+    private final Setting<List<String>> substitutes = sgFilters.add(new StringListSetting.Builder()
+        .name("substitutes")
+        .description("Accepted replacements, one line per target block: stone->cobblestone,andesite")
+        .build());
+
+    private final Setting<List<String>> ignoreProperties = sgFilters.add(new StringListSetting.Builder()
+        .name("ignore-properties")
+        .description("Block state properties that may differ from the schematic.")
+        .defaultValue("waterlogged")
+        .build());
+
+    private final Setting<Integer> blocksPerTick = sgPlacement.add(new IntSetting.Builder()
+        .name("blocks-per-tick")
+        .description("Actions per tick; above 1 sends several placements per tick (see the FAST profile, P5-05).")
+        .defaultValue(1)
+        .range(1, 8)
+        .sliderRange(1, 4)
+        .build());
+
+    private final Setting<Integer> tickInterval = sgPlacement.add(new IntSetting.Builder()
+        .name("tick-interval")
+        .description("Act only on every nth tick.")
+        .defaultValue(1)
+        .range(1, 20)
+        .sliderRange(1, 10)
+        .build());
+
+    private final Setting<Double> reach = sgPlacement.add(new DoubleSetting.Builder()
+        .name("reach")
+        .description("Upper bound for the placement distance; the server's own range still applies.")
+        .defaultValue(4.5)
+        .range(1, 4.5)
+        .sliderRange(1, 4.5)
+        .build());
+
+    private final Setting<Boolean> lineOfSight = sgPlacement.add(new BoolSetting.Builder()
+        .name("line-of-sight")
+        .description("Only place where the player can see the hit point.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> clickAdjacentOnly = sgPlacement.add(new BoolSetting.Builder()
+        .name("click-adjacent-only")
+        .description("Only click existing neighbour blocks, never the target position itself (no airplace).")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> rotationSpoof = sgPlacement.add(new BoolSetting.Builder()
+        .name("rotation-spoof")
+        .description("Only the server sees the rotation; the camera does not turn.")
+        .defaultValue(false)
+        .build());
+
+    private final Setting<String> allowedHotbarSlots = sgPlacement.add(new StringSetting.Builder()
+        .name("allowed-hotbar-slots")
+        .description("Hotbar slots the printer may use, as on the keyboard: 2-8 or 1,3,5-7")
+        .defaultValue("2-8")
+        .build());
+
+    private final Setting<Boolean> logStateChanges = sgDebug.add(new BoolSetting.Builder()
+        .name("log-state-changes")
+        .description("Print every state change of the build to chat.")
+        .defaultValue(false)
+        .build());
+
     private final AdditiveOnlyGuard guard = new AdditiveOnlyGuard(BaritoneBridge.BREAK_SETTINGS);
+    private final ActionBudget budget = new ActionBudget(this::budgetLimit);
+    /** Items already reported as missing in this run. */
+    private final Set<Item> reportedShortages = new HashSet<>();
+
+    private Optional<BuildSession> session = Optional.empty();
+    /** Status of the last run, kept for {@code .sf status} after it ended. */
+    private Optional<BuildSession.Status> lastStatus = Optional.empty();
+    private HotbarSlots hotbarSlots = HotbarSlots.parse("2-8");
+    private boolean rotationSpoofInRun;
+    private long tickCounter;
+    /** True while {@link #toggle()} runs: tells a real toggle from Meteor re-activating the module on world join. */
+    private boolean inToggle;
+    private boolean stopNextTick;
 
     public SchemaPrinter() {
         super(SchemaForgeAddon.CATEGORY, "schema-printer", "Prints the active Litematica placement into the world.");
     }
 
-    /** Forbids Baritone to break blocks for the whole run (P2-06); additiveOnly is fixed until the setting exists (P2-07). */
     @Override
-    public void onActivate() {
-        guard.engage(true);
-        if (guard.engaged()) SchemaForgeAddon.LOG.info("Additive only: Baritone may not break blocks until the printer stops");
+    public void toggle() {
+        inToggle = true;
+        try {
+            super.toggle();
+        } finally {
+            inToggle = false;
+        }
     }
 
-    /** Restores Baritone's break settings (P2-06). */
+    @Override
+    public void onActivate() {
+        // Meteor re-activates still-active modules on world join (also after a restart from the config).
+        // A run only ever starts from a toggle, never on its own.
+        if (!inToggle) {
+            stopNextTick = true;
+            return;
+        }
+        if (mc.level == null || mc.player == null) {
+            error("Join a world first.");
+            toggle();
+            return;
+        }
+        Optional<BuildSession> started = startRun();
+        if (started.isEmpty()) {
+            toggle();
+            return;
+        }
+        session = started;
+        guard.engage(additiveOnly.get());
+        started.get().start();
+    }
+
     @Override
     public void onDeactivate() {
-        if (guard.engaged()) SchemaForgeAddon.LOG.info("Additive only: Baritone break settings restored");
+        session.map(BuildSession::status).ifPresent(status -> lastStatus = Optional.of(status));
+        session = Optional.empty();
+        reportedShortages.clear();
+        stopNextTick = false;
         guard.release();
     }
 
-    /** Refills the packet budget before anything else runs in this tick (P2-01). */
+    /** Builds everything one run needs; empty after an error message in chat. */
+    private Optional<BuildSession> startRun() {
+        if (!LitematicaAdapter.isPresent()) {
+            error("Litematica is missing (see .sf doctor).");
+            return Optional.empty();
+        }
+        List<String> names = LitematicaAdapter.placementNames();
+        if (names.isEmpty()) {
+            error("No Litematica placements loaded (or Litematica incompatible, see .sf doctor).");
+            return Optional.empty();
+        }
+        String name = placement.get().isBlank() ? names.getFirst() : placement.get();
+        if (!names.contains(name)) {
+            error("Placement '%s' not found. Loaded: %s", name, String.join(", ", names.stream().distinct().toList()));
+            return Optional.empty();
+        }
+        if (placement.get().isBlank() && names.size() > 1) {
+            error("Several placements loaded, choose one with .sf start <name> or the placement setting.");
+            return Optional.empty();
+        }
+
+        Optional<HotbarSlots> slots = parseHotbarSlots();
+        if (slots.isEmpty()) return Optional.empty();
+        hotbarSlots = slots.get();
+
+        Substitutes.Parsed parsed = Substitutes.parse(substitutes.get());
+        parsed.errors().forEach(e -> warning("Ignoring substitute %s", e));
+
+        Optional<SchematicSnapshot> snapshot = LitematicaAdapter.snapshot(name);
+        if (snapshot.isEmpty()) {
+            error("Could not read placement '%s' (disabled, no enabled sub-region or Litematica incompatible; see log).", name);
+            return Optional.empty();
+        }
+
+        PlanConfig plan = new PlanConfig(clusterSize.get(), layerAxis.get(), layerAscending.get(),
+            additiveOnly.get(), ignoreAir.get(),
+            Set.copyOf(skipIfWorldIs.get()), Set.copyOf(treatAsAir.get()), Set.copyOf(neverPlace.get()),
+            parsed.map(), Set.copyOf(ignoreProperties.get()));
+        WorkPlanner planner = new WorkPlanner(plan);
+        MaterialManager materials = new MaterialManager(this::currentHotbarSlots, this::onShortage);
+        Printer printer = new Printer(new PlacementSolver(new SolverConfig(clickAdjacentOnly.get(), lineOfSight.get())),
+            planner, materials, budget, PlacementLog.toFile(FOLDER.resolve("placementlog-" + fileName(name) + ".jsonl")));
+
+        rotationSpoofInRun = rotationSpoof.get();
+        tickCounter = 0;
+        reportedShortages.clear();
+        return Optional.of(new BuildSession(snapshot.get(), planner, printer, System::currentTimeMillis, this::onStateChange));
+    }
+
+    /** Refills the budget and runs one step of the state machine (P2-01, P2-07). */
     @EventHandler
     private void onTickPre(TickEvent.Pre event) {
+        if (stopNextTick) {
+            // Deferred so the module is not toggled while Meteor iterates its modules on world join.
+            stopNextTick = false;
+            toggle();
+            return;
+        }
+        tickCounter++;
         budget.resetTick();
+        if (session.isEmpty() || mc.level == null || mc.player == null) return;
+
+        BuildSession run = session.get();
+        run.tick(new McWorldView(mc.level), new McPlayerView(mc.player, reach.get()),
+            new McInventoryView(mc.player), new McPrintActions(mc, rotationSpoofInRun));
+        if (run.state() == BuildSession.State.DONE) finish(run);
+    }
+
+    private void finish(BuildSession run) {
+        BuildSession.Status status = run.status();
+        if (status.remaining() == 0 && status.mismatched() == 0) {
+            info("Done: %d blocks placed, nothing left.", status.placed());
+        } else {
+            info("Done: %d blocks placed, %d not placed, %d mismatched (.sf status).",
+                status.placed(), status.remaining(), status.mismatched());
+        }
+        toggle();
+    }
+
+    /** Pause, resume and status for the {@code .sf} commands; empty while no run is going on. */
+    public Optional<BuildSession> session() {
+        return session;
+    }
+
+    /** Status of the running or the last finished run. */
+    public Optional<BuildSession.Status> lastStatus() {
+        return session.map(BuildSession::status).or(() -> lastStatus);
+    }
+
+    public Setting<String> placementSetting() {
+        return placement;
+    }
+
+    private void onShortage(MaterialManager.Shortage shortage) {
+        if (reportedShortages.add(shortage.item())) {
+            warning("Missing %d x %s; the printer skips those blocks (restock comes with P4-04).",
+                shortage.missing(), BuiltInRegistries.ITEM.getKey(shortage.item()).getPath());
+        }
+    }
+
+    private void onStateChange(BuildSession.State from, BuildSession.State to) {
+        SchemaForgeAddon.LOG.info("Build state {} -> {}", from, to);
+        if (logStateChanges.get()) info("%s -> %s", from, to);
+    }
+
+    /** Full budget only on acting ticks; the interval setting is read every tick. */
+    private int budgetLimit() {
+        return tickCounter % tickInterval.get() == 0 ? blocksPerTick.get() : 0;
+    }
+
+    /** Read on every placement, so a changed setting takes effect at once; broken text keeps the last valid value. */
+    private HotbarSlots currentHotbarSlots() {
+        try {
+            hotbarSlots = HotbarSlots.parse(allowedHotbarSlots.get());
+        } catch (IllegalArgumentException _) {
+            // Reported when the run started; keep printing with what was valid then.
+        }
+        return hotbarSlots;
+    }
+
+    /** The setting at the start of a run; empty after an error message in chat. */
+    private Optional<HotbarSlots> parseHotbarSlots() {
+        try {
+            return Optional.of(HotbarSlots.parse(allowedHotbarSlots.get()));
+        } catch (IllegalArgumentException e) {
+            error("Setting allowed-hotbar-slots: %s", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private static String fileName(String placementName) {
+        return placementName.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 }

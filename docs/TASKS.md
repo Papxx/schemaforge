@@ -164,9 +164,14 @@ Stand 2026-09-17: `baritone.api` hat keine positionsbezogene Break-Sperre (Jar 2
 - AK1 per Unit-Test abgesichert: `PrinterTest.wrongBlockInWorldIsNeverTouched` – Erde an einer Zielposition: mit additiveOnly `SKIP MISMATCH_ADDITIVE_ONLY`, ohne `BREAK`; in beiden Fällen kein Paket an diese Position, Block bleibt, Cluster wird fertig. In-game (`.sf status` „mismatched“) erst mit P2-07 → Backlog.
 - AK2 per Unit-Test abgesichert: `AdditiveOnlyGuardTest` (5) – nach engage/release dieselben Objekte (`assertSame`), Nutzerwerte vor dem Start bleiben, doppeltes engage, ohne Baritone/ohne additiveOnly keine Zugriffe. `SchemaPrinterTest` prüft die überschriebenen Hooks. In-game (`#modified` nach Modul aus) erst, wenn P2-07 das Modul registriert → Backlog.
 
-### P2-07 · Modul `SchemaPrinter` + Zustandsautomat + `.sf start/pause/resume/stop/status` `todo`
+### P2-07 · Modul `SchemaPrinter` + Zustandsautomat + `.sf start/pause/resume/stop/status` `done`
 - AK1 Manuell: kompletter Durchlauf Test-Schematic in Reichweite ohne Baritone → DONE, Verifier 0 Fehler
 - AK2 `.sf status` zeigt State, Cluster i/n, Blöcke gesetzt, Blöcke/min, mismatched
+
+Stand 2026-09-17: Zustandsautomat als testbares `core/BuildSession` (IDLE→PLANNING→BUILDING→VERIFYING→DONE, dazu PAUSED; TRAVELING/RESTOCKING existieren, werden erst in P3-02/P4-04 betreten). BUILDING läuft Cluster mit PLACE-Tasks der Reihe nach an (Cluster ohne PLACE werden übersprungen), VERIFYING plant neu und startet bis zu `MAX_ROUNDS` = 3 Runden, damit Blöcke nachgezogen werden, deren Träger erst in einem späteren Cluster entstand; Ende, sobald nichts mehr offen ist, eine Runde nichts gesendet hat oder Runde 3 vorbei ist. `SchemaPrinter` hält die Settings aus §7 (ohne `profile` → P5-05, `Safety` → P3-03, `buildOnlySelection`/`renderClusters` ohne Ticket → Backlog), baut je Tick `McWorldView`/`McPlayerView`/`McInventoryView`/`McPrintActions` und tickt die Session; Budget = `blocksPerTick` in Ticks mit `tick % tickInterval == 0`. Neu `core/Substitutes` (Setting-Zeilen „a->b,c“, fehlerhafte Zeilen werden gemeldet und übersprungen) und `core/StatusReport` (Text von `.sf status`). Commands: `StartCommand`, `ControlCommands` (pause/resume/stop), `StatusCommand`, dazu `commands/PlacementChoice` gemeinsam mit `.sf preview`. Modul in `SchemaForgeAddon` registriert. Gefunden und abgefangen: Meteor ruft `onActivate` für noch aktive Module beim Welt-Beitritt erneut auf (auch nach Neustart aus der Config) – ein Lauf startet deshalb nur aus `toggle()`, sonst schaltet sich das Modul im nächsten Tick ab. ARCHITECTURE.md §1/§5/§7 vorher angepasst. Build + 134 Tests grün.
+- AK1 **offen**: kompletter Durchlauf ist ein In-game-Test (Dev-Client, Litematica-Verifier) und steht noch aus → Backlog, zusammen mit P2-03 AK1/AK2, P2-04 AK2 und P2-06 AK1/AK2.
+- AK2 erfüllt: `StatusReportTest` (3) – State, Placement, Runde, Cluster i/n, gesetzte Blöcke, Blöcke/min, mismatched, offene Blöcke; ohne Lauf Hinweis auf `.sf start`, nach Stop/DONE nicht mehr „BUILDING“.
+- Dazu `BuildSessionTest` (7): Zustandsfolge bis DONE, alle Cluster der Reihe nach, zweite Runde holt nach, Abbruch nach 3 Runden, mismatched bleibt liegen, pause/resume sendet nichts bzw. macht weiter, Blöcke/min zählt nur aktive Zeit. `SubstitutesTest` (3), `SchemaPrinterTest` +1 (toggle-Absicherung).
 
 ---
 
@@ -273,6 +278,13 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - P2-06 AK1/AK2 in-game nachholen (mit P2-07): fremder Block im Baubereich bleibt und steht in `.sf status` unter „mismatched“; nach Modul aus zeigt `#modified` kein `allowBreak`/`allowBreakAnyway`. Dabei P0-05 AK3 mitprüfen: Addon lädt ohne Baritone, `onActivate` wirft nicht
 - `AdditiveOnlyGuard`: Brechen ist während des Laufs global verboten, nicht nur im Baubereich (baritone.api kann keine Positionen). Falls Baritone dadurch Cluster nicht erreicht: eigener `IBaritoneProcess` o. Ä. prüfen, nur `baritone.api`
 - `AdditiveOnlyGuard`: speichert Baritone seine Settings (z. B. nach `#set` durch den Nutzer) während der Guard aktiv ist, landet `allowBreak false` in `settings.txt`; stürzt das Spiel vor `onDeactivate` ab, bleibt das bestehen. Ggf. beim Start einen Hinweis im Chat oder Wiederherstellen beim Beenden
+
+- P2-07 AK1 in-game nachholen: kompletter Durchlauf der Test-Schematic in Reichweite ohne Baritone → DONE und Litematica-Verifier 0 Fehler. Dabei in einem Rutsch prüfen: P2-03 AK1/AK2, P2-04 AK2, P2-06 AK1/AK2, P2-05 Hotbar-Swap, Schild-Editor-Screen, Sneak-Klick an Kisten/Türen
+- `.sf status`/`BuildSession`: `placed` zählt gesendete Platzierungen, auch abgelehnte (gleiche Frage wie beim `PlacementLog`, P2-03). Erst nach Bestätigung zählen, sobald das geklärt ist
+- `BuildSession`: PLANNING und jedes VERIFYING planen die ganze Schematic in einem Tick; bei großen Placements spürbarer Ruckler (siehe auch WorkPlanner-Nearest-Neighbor-Eintrag). Ggf. über mehrere Ticks verteilen
+- Settings ohne Ticket: `buildOnlySelection` (§7, braucht `LitematicaAdapter.selectionBounds()`) und `renderClusters` (§7, braucht Render-Code) sind in P2-07 bewusst nicht angelegt
+- `SchemaPrinter`: `blocksPerTick` > 1 ist einstellbar, aber die Zusatzpakete (Rotation, Sneak) zählt das Budget noch nicht – vor P5-05 messen
+- `.sf verify` und `.sf materials` (§8) haben noch kein Ticket; `.sf status` deckt den Verifier-Teil bisher nur als Zählung „left to place / mismatched“ ab
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen

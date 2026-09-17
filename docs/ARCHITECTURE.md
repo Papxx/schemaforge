@@ -25,6 +25,8 @@ dev.tore.schemaforge
 │   ├── PlacementSolver              BlockState → PlacementPlan (Klick-Seite, Blick, Hand-Item)
 │   ├── SolverConfig                 clickAdjacentOnly, lineOfSight für den PlacementSolver (P2-02)
 │   ├── Printer                      Tick-Loop, platziert innerhalb Reichweite
+│   ├── BuildSession                 Zustandsautomat eines Laufs (§5): Planen, Cluster abarbeiten, Nachprüfen, Status (P2-07)
+│   ├── Substitutes                  Setting-Zeilen „a->b,c“ → Map<Block, List<Block>> (P2-07)
 │   ├── AdditiveOnlyGuard            verbietet Baritone das Brechen während des Laufs, stellt Settings wieder her (P2-06)
 │   ├── Navigator                    Cluster-/Container-Ziele an BaritoneBridge
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
@@ -42,6 +44,8 @@ dev.tore.schemaforge
 │   ├── ContainerRestock             Restock-Settings
 │   └── BuildResume                  Checkpoint-Persistenz
 ├── commands/  SfCommand             .sf <sub> – Sub-Commands als eigene Klassen (DoctorCommand, PreviewCommand, …)
+│              PlacementChoice       Placement-Argument auflösen, gemeinsam für preview/start (P2-07)
+│              StartCommand, ControlCommands (pause/resume/stop), StatusCommand   (P2-07)
 ├── hud/       BuildProgressHud
 └── mixins/                          leer bis ein Ticket einen Mixin verlangt
 ```
@@ -348,6 +352,56 @@ IDLE ─start─▶ PLANNING ─▶ BUILDING ⇄ TRAVELING
 Jeder Zustand: onEnter(), tick(), onExit(). Zustandswechsel loggen (Debug-Setting).
 ```
 
+P2-07: Der Automat liegt testbar in `core/BuildSession`; `SchemaPrinter` hält Settings, baut Views/Actions und reicht Ticks durch.
+onEnter/tick/onExit sind Zweige eines `switch` je Zustand, nicht eigene Klassen. TRAVELING (P3-02), RESTOCKING (P4-04) und
+automatische Pausen (P3-03) existieren als Zustände, werden aber noch nicht betreten.
+
+```java
+public final class BuildSession {
+    public enum State { IDLE, PLANNING, BUILDING, TRAVELING, RESTOCKING, PAUSED, VERIFYING, DONE }
+    public static final int MAX_ROUNDS = 3;                          // BUILDING→VERIFYING-Runden, danach DONE mit Rest
+    public record Status(State state, String placement, int round, int clusterIndex, int clusterCount,   // clusterIndex 1-basiert, 0 vor dem ersten
+                         int placed, double blocksPerMinute, int mismatched, int remaining) {}
+    public BuildSession(SchematicSnapshot snap, WorkPlanner planner, Printer printer, LongSupplier clockMs,
+                        BiConsumer<State, State> onStateChange);
+    public void start();                                             // IDLE → PLANNING
+    public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
+    public boolean pause();                                          // aus PLANNING/BUILDING/VERIFYING → PAUSED; false sonst
+    public boolean resume();                                         // PAUSED → Zustand davor; false sonst
+    public State state();
+    public Status status();
+    // PLANNING (1 Tick): planner.plan(snap, world, BlockPos.containing(player.eyePos())) → BUILDING
+    // BUILDING: kein Cluster offen oder printer.clusterDone() → nächster Cluster mit PLACE-Task (printer.startCluster);
+    //   Cluster ohne PLACE-Task (nur SKIP/BREAK/FLUID) werden übersprungen; keiner mehr → VERIFYING. Sonst printer.tick.
+    // VERIFYING (1 Tick): neu planen. remaining = PLACE-Tasks, mismatched = SKIP MISMATCH_ADDITIVE_ONLY.
+    //   remaining == 0, in dieser Runde nichts gesendet oder round == MAX_ROUNDS → DONE; sonst round+1, neue Cluster, BUILDING.
+    //   (Weitere Runden fangen Blöcke, deren Träger erst in einem späteren Cluster entstand.)
+    // mismatched/remaining kommen aus dem letzten Plan (PLANNING oder VERIFYING). placed = gesendete Platzierungen aller Runden.
+    // blocksPerMinute = placed / aktive Zeit (Zeit in PAUSED zählt nicht); 0 bei weniger als 1 s.
+}
+
+// P2-07. Zeilen „a->b,c“: Zielblock a darf in der Welt auch b oder c sein. Ids ohne Namespace = minecraft.
+public final class Substitutes {
+    public record Parsed(Map<Block, List<Block>> map, List<String> errors) {}   // fehlerhafte Zeilen werden übersprungen, Fehlertext je Zeile
+    public static Parsed parse(List<String> lines);
+}
+```
+
+`SchemaPrinter` (P2-07):
+- `onActivate`: Placement aus Setting (leer → einziges geladenes), Snapshot, `PlanConfig`/`SolverConfig`/`HotbarSlots` aus Settings
+  (fehlerhaft → Chat-Fehler, Modul aus), `PlacementLog.toFile(meteor-client/schemaforge/placementlog-<name>.jsonl)`,
+  `AdditiveOnlyGuard.engage(additiveOnly)`, Session starten. Änderungen an Plan-/Solver-Settings greifen beim nächsten Start;
+  `blocksPerTick`, `tickInterval`, `allowedHotbarSlots` (ungültig → letzter gültiger Wert) und `rotationSpoof` sofort.
+- Meteor ruft `onActivate` beim Welt-Beitritt erneut für aktive Module auf (auch nach Neustart aus der Config). Ein Lauf
+  startet nur aus `toggle()` (GUI, Keybind, `.sf start`); sonst wird das Modul im nächsten Tick ausgeschaltet.
+- `onDeactivate`: Session verwerfen (Status bleibt für `.sf status` als „stopped“), `guard.release()`.
+- Budget: Limit `blocksPerTick` in Ticks mit `tick % tickInterval == 0`, sonst 0.
+- DONE → Chat-Zusammenfassung, Modul aus. Fehlbestand → Chat-Warnung einmal je Item pro Lauf.
+
+Commands (P2-07): `.sf start [placement]` setzt das Setting und (re)startet das Modul · `.sf pause` / `.sf resume` →
+`BuildSession.pause/resume` · `.sf stop` → Modul aus · `.sf status` → Zeilen aus `Status` (State, Round, Cluster i/n,
+placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „idle“.
+
 ## 6. Persistenz
 
 - `meteor-client/schemaforge/containers-<serverHash>-<dimension>.json` – ContainerIndex
@@ -362,21 +416,21 @@ Jeder Zustand: onEnter(), tick(), onExit(). Zustandswechsel loggen (Debug-Settin
 | General | placement | String (Dropdown aus `placementNames()`) | aktives Placement |
 | General | additiveOnly | bool | true |
 | General | ignoreAir | bool | true |
-| General | buildOnlySelection | bool | false |
+| General | buildOnlySelection | bool | false |  ← P2-07: nicht angelegt, kein Ticket (Backlog)
 | Order | layerAxis / layerAscending | enum / bool | Y / true |
 | Order | clusterSize | int 3–16 | 5 |
 | Filters | skipIfWorldIs / treatAsAir / neverPlace | BlockList | leer / grass,tall_grass / tnt |
 | Filters | substitutes | StringList `a->b,c` | leer |
 | Filters | ignoreProperties | StringList | waterlogged |
-| Placement | profile | enum VANILLA_LEGIT / FAST / CUSTOM | VANILLA_LEGIT |
-| Placement | blocksPerTick / tickInterval | int / int | 1 / 1 |
+| Placement | profile | enum VANILLA_LEGIT / FAST / CUSTOM | VANILLA_LEGIT |  ← P2-07: nicht angelegt, kommt mit P5-05
+| Placement | blocksPerTick / tickInterval | int 1–8 / int 1–20 | 1 / 1 |
 | Placement | reach | double ≤ 4.5 | 4.5 |
 | Placement | lineOfSight | bool | true |
 | Placement | clickAdjacentOnly | bool | true |
 | Placement | rotationSpoof | bool | false |
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
-| Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |
-| Debug | logStateChanges / renderClusters | bool / bool | false / true |
+| Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P2-07: nicht angelegt, kommt mit P3-03
+| Debug | logStateChanges / renderClusters | bool / bool | false / true |  ← P2-07: nur logStateChanges; renderClusters ohne Ticket (Backlog)
 
 ## 8. Commands
 

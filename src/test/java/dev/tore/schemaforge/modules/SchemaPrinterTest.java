@@ -25,4 +25,11 @@ class SchemaPrinterTest {
         assertEquals(module, module.getMethod("onActivate").getDeclaringClass());
         assertEquals(module, module.getMethod("onDeactivate").getDeclaringClass());
     }
+
+    /** P2-07: toggle() is overridden so a run only starts from a real toggle, not from Meteor's re-activation on world join. */
+    @Test
+    void toggleIsOverriddenToTellRealTogglesApart() throws ReflectiveOperationException {
+        Class<?> module = Class.forName("dev.tore.schemaforge.modules.SchemaPrinter", false, getClass().getClassLoader());
+        assertEquals(module, module.getMethod("toggle").getDeclaringClass());
+    }
 }

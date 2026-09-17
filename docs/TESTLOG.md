@@ -20,3 +20,4 @@
 | 2026-09-17 | P2-04 | NICHT GETESTET | Nur Unit-Tests (`PlacementSolverTest` 23, davon 9 neu); AK1 damit erfüllt. AK2 in-game erst mit P2-07 → Backlog |
 | 2026-09-17 | P2-05 | OK (Unit-Tests) | AK1/AK2 sind Unit-Test-AKs: `MaterialManagerTest` 8, `PrinterTest` +2, alle grün. In-game-Prüfung des Hotbar-Swaps mit P2-07 → Backlog |
 | 2026-09-17 | P2-06 | NICHT GETESTET (in-game) | Nur Unit-Tests (`AdditiveOnlyGuardTest` 5, `PrinterTest` +1, `SchemaPrinterTest` +1), alle grün. AK1/AK2 in-game erst mit P2-07 → Backlog |
+| 2026-09-17 | P2-07 | TEILWEISE (Unit-Tests) | AK2 per `StatusReportTest` erfüllt; `BuildSessionTest` 7, `SubstitutesTest` 3, `SchemaPrinterTest` +1, gesamt 134 grün. AK1 (kompletter Durchlauf in-game, Verifier 0 Fehler) steht aus → Backlog |
