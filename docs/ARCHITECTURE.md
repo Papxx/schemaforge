@@ -15,6 +15,8 @@ dev.tore.schemaforge
 │   ├── LitematicaAdapter            einzige Klasse mit fi.dy.masa.*-Zugriff (MethodHandles)
 │   ├── PlacementTransform           package-private, reine Mathematik: Mirror/Rotation, Sub-Region-Box (P1-02)
 │   ├── McWorldView                  WorldView über ein echtes Level, nur Client-Thread (P1-05)
+│   ├── McPlayerView / McInventoryView  PlayerView/InventoryView über den lokalen Spieler, nur Client-Thread (P2-03)
+│   ├── McPrintActions               PrintActions über Meteor Rotations/InvUtils + Vanilla-Klick, nur Client-Thread (P2-03)
 │   └── BaritoneBridge               einzige Klasse mit baritone.api.*-Zugriff
 ├── core/
 │   ├── ActionBudget                 Pakete pro Tick begrenzen
@@ -32,7 +34,7 @@ dev.tore.schemaforge
 │   ├── ContainerType                enum CHEST / BARREL / SHULKER / ENDER_CHEST (WorldView, ContainerIndex)
 │   ├── SkipReason                   Grund eines SKIP-Tasks (P1-03)
 │   ├── PreviewReport                Text von .sf preview als Zeilenliste, ohne Chat-Abhängigkeit (P1-05)
-│   └── view/  WorldView, InventoryView, PlayerView   (kleine Interfaces für Testbarkeit)
+│   └── view/  WorldView, InventoryView, PlayerView, PrintActions   (kleine Interfaces für Testbarkeit)
 ├── modules/
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
 │   ├── ContainerRestock             Restock-Settings
@@ -119,6 +121,10 @@ public interface PlayerView {
     Vec3 eyePos(); float yaw(); float pitch(); double reach();
     boolean hasLineOfSight(Vec3 target);
 }
+// P2-03: einziger Weg, auf dem core/ Pakete auslöst. Der Aufrufer hat vorher ActionBudget.tryConsume() gefragt.
+public interface PrintActions {
+    boolean place(PlacementPlan plan, int hotbarSlot);   // Slot wählen, rotieren, schleichend klicken; false = nichts gesendet
+}
 ```
 
 Produktiv-Implementierungen liegen in `compat/` bzw. `modules/` (z. B. `McWorldView`), Tests nutzen Fakes.
@@ -184,6 +190,8 @@ public final class WorkPlanner {
     // Cluster-Reihenfolge: Würfel-Schicht entlang layerAxis/layerAscending, darin Nearest-Neighbor ab start.
     // Task-Reihenfolge im Cluster: priority absteigend, dann Schicht, dann Nearest-Neighbor (Cursor läuft über alle Cluster weiter).
     public List<BlockTask> refresh(Cluster c, WorldView world);      // Ist-Zustand neu einlesen
+    // P2-03: dieselben Regeln je Task von c (target bleibt), erledigte Positionen entfallen, Reihenfolge von c bleibt.
+    //  Priorität: war der Task schon PLACE, bleibt sie; sonst neu berechnet, Träger nur aus der Welt (kein Snapshot).
 }
 
 // P1-05. Reine Daten; Farben und Chat in commands/PreviewCommand.
@@ -207,6 +215,7 @@ public record SolverConfig(boolean clickAdjacentOnly, boolean lineOfSight) {}
 
 public final class PlacementSolver {
     public PlacementSolver(SolverConfig cfg);                        // P2-02: Konstruktor ergänzt (clickAdjacentOnly braucht Konfiguration)
+    public SolverConfig config();                                    // P2-03: Printer prüft lineOfSight erneut
     public SolveResult solve(BlockTask task, WorldView world, PlayerView player, EasyPlaceProtocol proto);
     // P2-02 Regeln (Vanilla getStateForPlacement, 26.2 nachgelesen):
     //  nur PLACE-Tasks; ohne Item → Unsupported · keine Regel für die Blockklasse → Unsupported (abhängige Blöcke: P2-04)
@@ -224,6 +233,33 @@ public final class PlacementSolver {
     //  sneak immer true (verhindert, dass ein Klick eine GUI/Tür des Nachbarn bedient). yaw/pitch = Blick auf hitVec.
     //  proto wird erst in P5-06 ausgewertet.
     public static Optional<String> unsupportedReason(BlockState target); // unabhängig von Welt/Spieler; leer = Regel vorhanden (für .sf preview)
+}
+
+// P2-03. Tick-Loop für genau einen Cluster; Navigation und Zustandsautomat liegen in SchemaPrinter (P2-07).
+public final class Printer {
+    public static final int MAX_ATTEMPTS = 3;                        // pro Task pro Cluster-Besuch (AK3)
+    public Printer(PlacementSolver solver, WorkPlanner planner, ActionBudget budget, PlacementLog log);
+    public void startCluster(Cluster c);                             // neuer Besuch: Versuche und Durchlauf zurücksetzen
+    public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
+    public boolean clusterDone();                                    // kein offener PLACE-Task mit Versuchen < MAX_ATTEMPTS
+    public int placedCount();                                        // gesendete Platzierungen in diesem Besuch
+    // Durchlauf: zu Beginn refresh(), dann Tasks in Reihenfolge ab Cursor, höchstens ein Durchlauf pro Tick.
+    //  Nur PLACE; Position nicht mehr ersetzbar → weiter ohne Versuch (nächster refresh entscheidet).
+    //  Jeder Blick auf einen Task zählt einen Versuch: NeedsSupport/Unsupported, Plan außer Reichweite
+    //  (eyePos→hitVec > reach), ohne Sicht (lineOfSight), Fläche nicht zum Auge, Item nicht in der Hotbar, gesendet.
+    //  Budget leer → Tick endet, Cursor bleibt (kein Versuch). Gesendet → PlacementLog.append(pos, target, temp=false).
+    //  Eine Platzierung = eine Budget-Einheit. Rotation immer (VANILLA_LEGIT); Hotbar-Wahl über InventoryView.hotbarSlotWith
+    //  bis P2-05 (MaterialManager, allowedHotbarSlots) sie übernimmt. proto = NONE bis P5-06.
+}
+
+// P2-03. Speichert jede Platzierung; Datei optional (Tests, Schreibfehler). Zeile: {"v":1,"pos":[x,y,z],"block":"<BlockStateParser.serialize>","temp":false,"t":<epoch ms>}
+public final class PlacementLog {
+    public record Entry(BlockPos pos, BlockState block, boolean temp, long t) {}
+    public static PlacementLog inMemory();
+    public static PlacementLog toFile(Path file);                    // hängt an; Verzeichnis wird angelegt
+    public void append(BlockPos pos, BlockState block, boolean temp);
+    public List<Entry> entries();                                    // Einträge dieser Sitzung
+    public Optional<IOException> writeError();                       // erster Schreibfehler; danach nur noch im Speicher
 }
 
 public final class ContainerIndex {

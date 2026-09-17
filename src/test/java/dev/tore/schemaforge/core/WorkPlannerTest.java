@@ -241,6 +241,42 @@ class WorkPlannerTest {
         return allTasks(clusters).size();
     }
 
+    // --- P2-03: refresh ------------------------------------------------------------------------------
+
+    @Test
+    void refreshDropsPlacedPositionsAndKeepsOrderAndPriority() {
+        SchematicSnapshot snap = cube(3, Blocks.STONE.defaultBlockState());
+        FakeWorld world = new FakeWorld();
+        WorkPlanner planner = planner(config(5, true));
+        Cluster cluster = planner.plan(snap, world, ORIGIN).getFirst();
+        BlockPos placed = cluster.tasks().get(4).pos();
+        world.set(placed, Blocks.STONE.defaultBlockState());
+
+        List<BlockTask> refreshed = planner.refresh(cluster, world);
+        List<BlockTask> expected = cluster.tasks().stream().filter(t -> !t.pos().equals(placed)).toList();
+        assertEquals(expected, refreshed);
+    }
+
+    @Test
+    void refreshReadsCurrentStateAgain() {
+        SchematicSnapshot snap = snapshot(Map.of(ORIGIN, Blocks.STONE.defaultBlockState()));
+        FakeWorld world = new FakeWorld().unload(ORIGIN);
+        WorkPlanner planner = planner(config(5, true));
+        Cluster cluster = planner.plan(snap, world, ORIGIN).getFirst();
+        assertEquals(SkipReason.CHUNK_NOT_LOADED, cluster.tasks().getFirst().skipReason());
+
+        FakeWorld loaded = new FakeWorld();
+        BlockTask now = planner.refresh(cluster, loaded).getFirst();
+        assertEquals(TaskKind.PLACE, now.kind());
+        assertEquals(WorkPlanner.PRIORITY_FULL_BLOCK, now.priority());
+
+        loaded.set(ORIGIN, Blocks.DIRT.defaultBlockState());
+        BlockTask mismatch = planner.refresh(cluster, loaded).getFirst();
+        assertEquals(TaskKind.SKIP, mismatch.kind());
+        assertEquals(SkipReason.MISMATCH_ADDITIVE_ONLY, mismatch.skipReason());
+        assertEquals(Blocks.DIRT.defaultBlockState(), mismatch.current());
+    }
+
     private static BlockTask single(List<Cluster> clusters) {
         List<BlockTask> tasks = allTasks(clusters);
         assertEquals(1, tasks.size(), "tasks: " + tasks);

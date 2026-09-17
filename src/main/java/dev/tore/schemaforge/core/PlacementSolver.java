@@ -48,6 +48,11 @@ public final class PlacementSolver {
         this.cfg = cfg;
     }
 
+    /** The settings this solver rates candidates with; the Printer repeats the reach and sight checks (P2-03). */
+    public SolverConfig config() {
+        return cfg;
+    }
+
     /**
      * Picks the best click for a PLACE task. The returned plan may still be out of reach or out of sight when no
      * better candidate exists; the Printer checks that before sending (P2-03).

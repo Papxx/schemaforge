@@ -63,9 +63,10 @@ public final class WorkPlanner {
      */
     public List<Cluster> plan(SchematicSnapshot snap, WorldView world, BlockPos start) {
         Map<Long, List<BlockTask>> cells = new HashMap<>();
+        Function<BlockPos, BlockState> planned = planned(snap);
         for (Long2ObjectMap.Entry<BlockState> entry : snap.blocks().long2ObjectEntrySet()) {
             BlockPos pos = BlockPos.of(entry.getLongKey());
-            taskFor(pos, entry.getValue(), snap, world)
+            taskFor(pos, entry.getValue(), world, (p, target) -> placePriority(p, target, planned, world))
                 .ifPresent(task -> cells.computeIfAbsent(cellKey(pos, snap.min()), k -> new ArrayList<>()).add(task));
         }
 
@@ -80,13 +81,24 @@ public final class WorkPlanner {
         return List.copyOf(clusters);
     }
 
-    /** Re-reads the world state of a cluster. Implemented in P2-03. */
+    /**
+     * Re-reads the world state of a cluster (P2-03): the rules of {@link #plan} for every task target, positions that
+     * need nothing any more are dropped, the order of {@code c} is kept. PLACE tasks keep their priority; other tasks
+     * that turn into PLACE get a new one, with carriers taken from the world only (no snapshot at hand).
+     */
     public List<BlockTask> refresh(Cluster c, WorldView world) {
-        throw new UnsupportedOperationException("P2-03");
+        List<BlockTask> tasks = new ArrayList<>(c.tasks().size());
+        for (BlockTask old : c.tasks()) {
+            taskFor(old.pos(), old.target(), world, (pos, target) -> old.kind() == TaskKind.PLACE
+                ? old.priority()
+                : placePriority(pos, target, _ -> null, world))
+                .ifPresent(tasks::add);
+        }
+        return List.copyOf(tasks);
     }
 
     /** Empty when nothing has to happen at {@code pos}. */
-    private Optional<BlockTask> taskFor(BlockPos pos, BlockState target, SchematicSnapshot snap, WorldView world) {
+    private Optional<BlockTask> taskFor(BlockPos pos, BlockState target, WorldView world, PlacePriority priority) {
         boolean targetAir = isEffectivelyAir(target);
         if (targetAir && cfg.ignoreAir()) return Optional.empty();
         // World state is unknown in unloaded chunks; void air marks that instead of a guessed state.
@@ -100,7 +112,7 @@ public final class WorkPlanner {
 
         if (!targetAir && (currentAir || current.canBeReplaced())) {
             if (target.getBlock() instanceof LiquidBlock) return task(pos, target, current, TaskKind.FLUID, PRIORITY_FLUID);
-            return task(pos, target, current, TaskKind.PLACE, placePriority(pos, target, snap, world));
+            return task(pos, target, current, TaskKind.PLACE, priority.of(pos, target));
         }
         if (cfg.additiveOnly()) return skip(pos, target, current, SkipReason.MISMATCH_ADDITIVE_ONLY);
         return task(pos, target, current, TaskKind.BREAK, PRIORITY_BREAK);
@@ -126,15 +138,26 @@ public final class WorkPlanner {
         return true;
     }
 
-    private int placePriority(BlockPos pos, BlockState target, SchematicSnapshot snap, WorldView world) {
-        if (isDependent(pos, target, snap, world)) return PRIORITY_DEPENDENT;
+    /** Priority of a PLACE task at {@code pos}. */
+    @FunctionalInterface
+    private interface PlacePriority {
+        int of(BlockPos pos, BlockState target);
+    }
+
+    /** Planned target at a position, or null if the schematic has none there (or none is known). */
+    private static Function<BlockPos, BlockState> planned(SchematicSnapshot snap) {
+        return pos -> snap.blocks().get(pos.asLong());
+    }
+
+    private int placePriority(BlockPos pos, BlockState target, Function<BlockPos, BlockState> planned, WorldView world) {
+        if (isDependent(pos, target, planned, world)) return PRIORITY_DEPENDENT;
         return target.isCollisionShapeFullBlock(EmptyBlockGetter.INSTANCE, BlockPos.ZERO) ? PRIORITY_FULL_BLOCK : PRIORITY_BLOCK;
     }
 
     /** Blocks that need a carrier which must already stand in the world. */
-    private boolean isDependent(BlockPos pos, BlockState target, SchematicSnapshot snap, WorldView world) {
+    private boolean isDependent(BlockPos pos, BlockState target, Function<BlockPos, BlockState> planned, WorldView world) {
         Block block = target.getBlock();
-        if (block instanceof SlabBlock) return target.getValue(SlabBlock.TYPE) == SlabType.TOP && !hasSlabCarrier(pos, snap, world);
+        if (block instanceof SlabBlock) return target.getValue(SlabBlock.TYPE) == SlabType.TOP && !hasSlabCarrier(pos, planned, world);
         return block instanceof BaseTorchBlock
             || block instanceof FaceAttachedHorizontalDirectionalBlock
             || block instanceof BaseRailBlock
@@ -151,11 +174,11 @@ public final class WorkPlanner {
     }
 
     /** A top slab can be clicked into place from the block above or from a side neighbor. */
-    private boolean hasSlabCarrier(BlockPos pos, SchematicSnapshot snap, WorldView world) {
+    private boolean hasSlabCarrier(BlockPos pos, Function<BlockPos, BlockState> planned, WorldView world) {
         for (Direction direction : SLAB_CARRIERS) {
             BlockPos neighbor = pos.relative(direction);
-            BlockState planned = snap.blocks().get(neighbor.asLong());
-            if (planned != null && !isEffectivelyAir(planned)) return true;
+            BlockState plannedState = planned.apply(neighbor);
+            if (plannedState != null && !isEffectivelyAir(plannedState)) return true;
             if (world.isChunkLoaded(neighbor) && !world.getBlockState(neighbor).canBeReplaced()) return true;
         }
         return false;

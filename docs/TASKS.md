@@ -127,11 +127,15 @@ Stand 2026-09-15: `PlacementSolver` mit Regeln aus Vanilla-26.2-`getStateForPlac
 - Nachtrag P1-05 erledigt: `.sf preview` meldet „n blocks the printer cannot place yet: …“ (`PreviewReportTest`). Für die Test-Schematic kommt damit eine Zeile dazu (Wandfackeln, Knöpfe, Hebel, Falltüren, Türen, Schienen, Teppiche → P2-04); Zeilenzahl ≤ 4 + Materialien + 6 = 25.
 - Nicht in-game geprüft (erst mit dem Printer in P2-03 sichtbar). Doppelstufen sind `Unsupported`, siehe Backlog.
 
-### P2-03 · `Printer` Tick-Loop `todo`
+### P2-03 · `Printer` Tick-Loop `done`
 Für aktuellen Cluster: Tasks in Reihenfolge, Reichweite (`reach`, `lineOfSight`), Solve, Hotbar-Swap via `MaterialManager`, Rotation (echt via Meteor `Rotations` oder Spoof je Profil), Platzieren via `BlockUtils`-Äquivalent, `PlacementLog` schreiben, Budget beachten.
 - AK1 Manuell: Test-Schematic-Zeile Vollblöcke/Slabs/Stairs/Logs in Singleplayer → Litematica-Verifier 0 Fehler
 - AK2 Manuell: Profil VANILLA_LEGIT, 1 Block/Tick → keine Ghost-Blocks auf lokalem Paper-Server
 - AK3 Blöcke außer Reichweite werden übersprungen, nicht endlos versucht (max 3 Versuche pro Task pro Cluster-Besuch)
+
+Stand 2026-09-17: `Printer` arbeitet einen Cluster in Durchläufen ab: `WorkPlanner.refresh()` (jetzt implementiert, gleiche Regeln wie `plan`, Reihenfolge/Priorität bleiben), dann PLACE-Tasks ab Cursor, höchstens ein Durchlauf pro Tick. Jeder Blick auf einen Task zählt einen Versuch (Solver liefert kein `Ok`, Plan außer Reichweite/ohne Sicht/Fläche abgewandt, Item nicht in der Hotbar, gesendet); nach 3 Versuchen ist der Task für diesen Besuch erledigt, `clusterDone()` wird true. Budget leer → Tick endet ohne Versuch. Gesendete Platzierungen gehen ins `PlacementLog` (JSONL `{"v":1,pos,block,temp,t}`, Datei optional). Produktiv: `compat/McPrintActions` (Meteor `Rotations.rotate` mit Callback, `InvUtils.swap`, Sneak per `ServerboundPlayerInputPacket` um `useItemOn` herum, weil `BlockUtils.interact` Sneak löst), `McPlayerView` (Reichweite = min(Setting, `blockInteractionRange()`), Sicht per `Level.clip`), `McInventoryView`. Hotbar-Wahl vorerst `InventoryView.hotbarSlotWith` (bevorzugt den gewählten Slot) bis P2-05. Rotation immer (VANILLA_LEGIT); `rotationSpoof` ist Konstruktor-Parameter von `McPrintActions`, bis P2-07 das Setting liefert. ARCHITECTURE.md §1/§3/§4 vorher ergänzt (`PrintActions`, `Printer`, `PlacementLog`, `refresh`, `PlacementSolver.config()`). Vanilla-Signaturen per javap/Vineflower geprüft (`LocalPlayer.getLastSentInput`, `ClientInput.keyPresses`, `Input`, `MultiPlayerGameMode.useItemOn`, `ClipContext`, `BlockStateParser.serialize`). Build + 94 Tests grün.
+- AK1/AK2 **offen**: nicht in-game prüfbar, solange kein Modul den Printer tickt (P2-07 registriert `SchemaPrinter`). Nachholen mit P2-07, siehe Backlog.
+- AK3 erfüllt: `PrinterTest` – außer Reichweite nach 3 Ticks aufgegeben, nie gesendet; abgelehnte Platzierung höchstens 3× gesendet; neuer Besuch (`startCluster`) setzt Versuche zurück; fehlendes Item, fehlende Regel (Fackel) und fehlende Sicht werden nie gesendet. Außerdem: 1 Platzierung pro Tick bei Limit 1, Reihenfolge = Task-Reihenfolge, leeres Budget zählt keine Versuche, Log-Zeilenformat und Datei-Append. `WorkPlannerTest` um zwei `refresh`-Tests ergänzt.
 
 ### P2-04 · `PlacementSolver` abhängige Blöcke `todo`
 Wall-Torch, Torch, Button, Lever, Trapdoor, Door (untere Hälfte, hinge), Carpet, Ladder, Sign, Glazed Terracotta.
@@ -241,6 +245,10 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - `PlacementSolver`: volle Blöcke mit nachbarabhängigen Properties (`snowy` bei Gras/Myzel/Podsol, Laub `distance`/`persistent`, Glasscheiben/Eisengitter) sind `Unsupported`; wie Fence/Wall behandeln, sobald `ignoreProperties`/Verifier das abdecken
 - `PlacementSolver`: `hitVec` für Airplace liegt auf der Fläche der Zielposition; wenn dort ein ersetzbarer Block mit Outline steht (Gras), trifft ein echter Strahl dessen Box – mit `lineOfSight`-Raycast im Printer (P2-03) prüfen
 - `snapshot()` sieht nur Schematic-Chunks in Spielernähe; Chunks, die Litematicas Daemon schon geladen, aber noch nicht befüllt hat (`ChunkSchematicState`), liefern evtl. Luft – prüfen, ob das in-game vorkommt
+
+- P2-03 AK1 (Vollblöcke/Slabs/Stairs/Logs → Verifier 0 Fehler, Singleplayer) und AK2 (VANILLA_LEGIT, 1 Block/Tick, keine Ghost-Blocks auf lokalem Paper) in-game nachholen, sobald P2-07 den Printer ans Modul hängt; dabei auch prüfen, dass Sneak-Klick an Kisten/Türen keine GUI öffnet und der Server danach nicht schleichend bleibt
+- `Printer`: eine Platzierung = eine Budget-Einheit; mehrere Rotationen im selben Tick schicken bei Meteor je ein Zusatzpaket (NOTES-meteor-api Punkt 3), dazu 2 Input-Pakete für Sneak – bei `blocksPerTick` > 1 (P5-05) Paketzahl messen und ggf. mitzählen
+- `Printer`: gesendete Platzierung wird geloggt, auch wenn der Server sie ablehnt; `PlacementLog` ggf. erst nach Bestätigung (nächster refresh) schreiben – für Undo (P5-01) klären
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen

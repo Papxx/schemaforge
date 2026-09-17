@@ -42,9 +42,10 @@ Alle Namen Mojmap. Paket-Präfix `meteordevelopment.meteorclient.` unten weggela
    - **Die Klicks** macht `moveSlots` auf dem **`MeteorExecutor`-Thread** und wartet dazwischen per `Thread.sleep(autoStealDelay / autoStealInitDelay / autoStealRandomDelay)` in Millisekunden. Das ist nicht tickbasiert und darf **nicht so übernommen werden**, weil Regel 7 verlangt, dass Pakete über `ActionBudget` im Tick laufen.
    Den Tick-Hook für P2-01 liefert `events.world.TickEvent.Pre` bzw. `.Post`, abonniert mit `@EventHandler` aus `meteordevelopment.orbit`.
 
-## Was SchemaForge davon übernommen hat (Stand P2-02)
+## Was SchemaForge davon übernommen hat (Stand P2-03)
 
 - **P2-01:** `SchemaPrinter.onTickPre(TickEvent.Pre)` mit `@EventHandler` setzt das `ActionBudget` zurück. Meteor abonniert die Handler erst, wenn das Modul aktiv ist.
 - **P1-05:** `.sf preview` zählt Inventar-Items mit `InvUtils.find(item).count()` und nutzt dafür die ganze Inventarschleife aus Punkt 4.
 - **P2-02, bewusst anders als Punkt 1:** Airplace gibt es nur mit `clickAdjacentOnly=false` und nur als Ausweichlösung; mit `true` liefert der Solver `NeedsSupport`.
 - **P2-02, bewusst anders als Punkt 2:** Klickbare Nachbarn werden nicht ausgeschlossen. `PlacementPlan.sneak` ist stattdessen immer `true`. Der Printer (P2-03) darf deshalb nicht `BlockUtils.interact` verwenden, weil das Sneak ausschaltet. Er muss Sneak während des Klicks halten.
+- **P2-03:** `compat/McPrintActions` rotiert über `Rotations.rotate(yaw, pitch, 50, clientSide = !rotationSpoof, callback)` und klickt erst im Callback, also nach dem Bewegungspaket. Im Callback: `InvUtils.swap(slot, false)` (kein Zurückwechseln), dann Vanilla `mc.gameMode.useItemOn` + `player.swing`. Sneak ohne `BlockUtils.interact`: Sieht der Server den Spieler laut `LocalPlayer.getLastSentInput()` nicht schleichend, geht vor dem Klick ein `ServerboundPlayerInputPacket` mit `shift=true` raus und danach eins mit dem alten Input; `player.input.keyPresses` wird für diese Spanne ebenfalls umgestellt, damit die Client-Vorhersage (`isSecondaryUseActive`) zum Server passt. Nötig, weil `LocalPlayer.tick()` nur sendet, wenn `keyPresses` von `lastSentInput` abweicht, und ein manuelles Paket `lastSentInput` nicht ändert.
