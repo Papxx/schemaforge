@@ -41,6 +41,21 @@ public final class McInventoryView implements InventoryView {
     }
 
     @Override
+    public int selectedSlot() {
+        return player.getInventory().getSelectedSlot();
+    }
+
+    @Override
+    public Item itemAt(int slot) {
+        return player.getInventory().getItem(slot).getItem();
+    }
+
+    @Override
+    public int countAt(int slot) {
+        return player.getInventory().getItem(slot).getCount();
+    }
+
+    @Override
     public int freeSlots() {
         return (int) player.getInventory().getNonEquipmentItems().stream().filter(ItemStack::isEmpty).count();
     }

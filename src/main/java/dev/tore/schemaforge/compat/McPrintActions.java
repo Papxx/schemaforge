@@ -11,6 +11,7 @@ import net.minecraft.network.protocol.game.ServerboundPlayerInputPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Input;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.phys.BlockHitResult;
 
 /**
@@ -39,6 +40,18 @@ public final class McPrintActions implements PrintActions {
         if (mc.player == null || mc.gameMode == null || mc.getConnection() == null) return false;
         BlockHitResult hit = new BlockHitResult(plan.hitVec(), plan.clickFace(), plan.clickPos(), false);
         Rotations.rotate(plan.yaw(), plan.pitch(), ROTATION_PRIORITY, !rotationSpoof, () -> click(hit, hotbarSlot, plan.sneak()));
+        return true;
+    }
+
+    /**
+     * One {@code ContainerInput.SWAP} click via Meteor's {@code InvUtils.quickSwap()} (hotbar index as button, inventory
+     * slot as target). Only while the player inventory menu is active, so slot ids cannot point into another container.
+     */
+    @Override
+    public boolean swapToHotbar(int inventorySlot, int hotbarSlot) {
+        if (mc.player == null || mc.gameMode == null || !(mc.player.containerMenu instanceof InventoryMenu)) return false;
+        if (inventorySlot == hotbarSlot) return false;
+        InvUtils.quickSwap().fromId(hotbarSlot).to(inventorySlot);
         return true;
     }
 

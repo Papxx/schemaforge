@@ -27,6 +27,7 @@ dev.tore.schemaforge
 │   ├── Printer                      Tick-Loop, platziert innerhalb Reichweite
 │   ├── Navigator                    Cluster-/Container-Ziele an BaritoneBridge
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
+│   ├── HotbarSlots                  erlaubte Hotbar-Slots aus Setting-Text „2-8“ (P2-05)
 │   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
@@ -116,6 +117,9 @@ public interface InventoryView {
     OptionalInt hotbarSlotWith(Item item);
     int freeSlots();
     List<ItemStack> shulkersContaining(Item item);
+    int selectedSlot();                                  // P2-05: 0–8
+    Item itemAt(int slot);                               // P2-05: Inventar-Index 0–35 (0–8 Hotbar), Items.AIR wenn leer
+    int countAt(int slot);                               // P2-05: Stapelgröße, 0 wenn leer (kein ItemStack: im Unit-Test nicht erzeugbar)
 }
 public interface PlayerView {
     Vec3 eyePos(); float yaw(); float pitch(); double reach();
@@ -124,6 +128,7 @@ public interface PlayerView {
 // P2-03: einziger Weg, auf dem core/ Pakete auslöst. Der Aufrufer hat vorher ActionBudget.tryConsume() gefragt.
 public interface PrintActions {
     boolean place(PlacementPlan plan, int hotbarSlot);   // Slot wählen, rotieren, schleichend klicken; false = nichts gesendet
+    boolean swapToHotbar(int inventorySlot, int hotbarSlot);   // P2-05: ein SWAP-Klick im Spielerinventar; false = nichts gesendet
 }
 ```
 
@@ -252,8 +257,8 @@ public final class PlacementSolver {
 // P2-03. Tick-Loop für genau einen Cluster; Navigation und Zustandsautomat liegen in SchemaPrinter (P2-07).
 public final class Printer {
     public static final int MAX_ATTEMPTS = 3;                        // pro Task pro Cluster-Besuch (AK3)
-    public Printer(PlacementSolver solver, WorkPlanner planner, ActionBudget budget, PlacementLog log);
-    public void startCluster(Cluster c);                             // neuer Besuch: Versuche und Durchlauf zurücksetzen
+    public Printer(PlacementSolver solver, WorkPlanner planner, MaterialManager materials, ActionBudget budget, PlacementLog log);  // P2-05: materials
+    public void startCluster(Cluster c);                             // neuer Besuch: Versuche und Durchlauf zurücksetzen; materials.startCluster(c)
     public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
     public boolean clusterDone();                                    // kein offener PLACE-Task mit Versuchen < MAX_ATTEMPTS
     public int placedCount();                                        // gesendete Platzierungen in diesem Besuch
@@ -262,8 +267,33 @@ public final class Printer {
     //  Jeder Blick auf einen Task zählt einen Versuch: NeedsSupport/Unsupported, Plan außer Reichweite
     //  (eyePos→hitVec > reach), ohne Sicht (lineOfSight), Fläche nicht zum Auge, Item nicht in der Hotbar, gesendet.
     //  Budget leer → Tick endet, Cursor bleibt (kein Versuch). Gesendet → PlacementLog.append(pos, target, temp=false).
-    //  Eine Platzierung = eine Budget-Einheit. Rotation immer (VANILLA_LEGIT); Hotbar-Wahl über InventoryView.hotbarSlotWith
-    //  bis P2-05 (MaterialManager, allowedHotbarSlots) sie übernimmt. proto = NONE bis P5-06.
+    //  Eine Platzierung = eine Budget-Einheit. Rotation immer (VANILLA_LEGIT). proto = NONE bis P5-06.
+    //  P2-05: Hotbar über materials.select(item): Ready → platzieren · Swap → swapToHotbar (eine Budget-Einheit, zählt als
+    //  Versuch; platziert wird im nächsten Durchlauf) · Missing → Versuch ohne Paket (Fehlbestand-Event feuert der MaterialManager).
+}
+
+// P2-05. Erlaubte Hotbar-Slots. Text wie im Spiel nummeriert (Tasten 1–9): „2-8“, „1,3,5-7“; intern Index 0–8.
+public record HotbarSlots(Set<Integer> indices) {                   // aufsteigend, nicht leer
+    public static HotbarSlots parse(String text);                    // IllegalArgumentException bei leer/ungültig/außerhalb 1–9
+    public boolean allows(int index);
+}
+
+// P2-05. Bedarf eines Clusters, Hotbar-Wahl nur in erlaubten Slots, Fehlbestand-Event. Sendet selbst nichts.
+public final class MaterialManager {
+    public record Shortage(Item item, int missing) {}                // missing = Bedarf − Inventar, mindestens 1
+    public sealed interface Selection {
+        record Ready(int hotbarSlot) implements Selection {}         // Item liegt in erlaubtem Slot (gewählter Slot zuerst, sonst kleinster)
+        record Swap(int fromSlot, int toHotbarSlot) implements Selection {}
+        record Missing(Shortage shortage) implements Selection {}
+    }
+    public MaterialManager(Supplier<HotbarSlots> allowed, Consumer<Shortage> onShortage);   // allowed je Aufruf gelesen (Setting)
+    public void startCluster(Cluster c);                             // Bedarf = MaterialRules.required der PLACE-/FLUID-Tasks; gemeldete Items zurücksetzen
+    public Map<Item, Integer> demand();
+    public List<Shortage> checkShortages(InventoryView inv);         // alle Items mit Inventar < Bedarf (nach Item-ID sortiert), meldet noch nicht gemeldete
+    public Selection select(Item item, InventoryView inv);
+    // select: Item in erlaubtem Hotbar-Slot → Ready. Sonst Item irgendwo im Inventar (nicht erlaubter Hotbar-Slot oder 9–35;
+    //  größter Stapel) → Swap in: leeren erlaubten Slot, sonst erlaubten Slot ohne Item aus demand(), sonst kleinsten erlaubten.
+    //  Sonst Missing; das Event feuert höchstens einmal je Item pro Cluster-Besuch.
 }
 
 // P2-03. Speichert jede Platzierung; Datei optional (Tests, Schreibfehler). Zeile: {"v":1,"pos":[x,y,z],"block":"<BlockStateParser.serialize>","temp":false,"t":<epoch ms>}

@@ -146,10 +146,14 @@ Stand 2026-09-17: Regeln aus Vanilla-26.2 gelesen (Vineflower: `StandingAndWallB
 - AK1 erfüllt: `PlacementSolverTest` +9 Tests (stehende Fackeln, Wandblöcke × 4 Richtungen × 5 Arten, Boden-/Deckenknopf/-hebel, Falltür seitlich/Boden/Decke, Tür 4 Richtungen × 2 Scharniere, Tür oben/blockiert/erzwungenes Scharnier, Teppich, Schild 16 Rotationen, kein Airplace). Erwartungen gegen die Vanilla-Formeln (`Direction.fromYRot`, `RotationSegment.convertToSegment(yaw+180)`, Scharnier-Ausdruck aus `DoorBlock.getHinge`), nicht gegen Solver-Konstanten. Bisherige Tests, die Fackeln als „nicht unterstützt“ nutzten, verwenden jetzt Schienen (P5-04).
 - AK2 **offen**: in-game erst mit P2-07 prüfbar, siehe Backlog.
 
-### P2-05 · `MaterialManager` Basis `todo`
+### P2-05 · `MaterialManager` Basis `done`
 Bedarf aus Cluster, Hotbar-Swap nur in `allowedHotbarSlots`, Fehlbestand-Event.
 - AK1 Unit-Test: Item in Slot 1 (nicht erlaubt) + Slot 4 → Slot 4 gewählt
 - AK2 Unit-Test: Item fehlt → Event mit Item + Menge
+
+Stand 2026-09-17: `MaterialManager` berechnet beim Cluster-Start den Bedarf (`MaterialRules` über PLACE-/FLUID-Tasks) und wählt pro Platzierung: Item in erlaubtem Hotbar-Slot → `Ready` (gewählter Slot zuerst, sonst kleinster), sonst Item im Inventar oder in nicht erlaubtem Hotbar-Slot → `Swap` (größter Stapel; Ziel: leerer erlaubter Slot, sonst einer ohne benötigtes Item, sonst kleinster), sonst `Missing` mit Fehlbestand-Event (`Consumer<Shortage>`, höchstens einmal je Item pro Cluster-Besuch; Menge = Bedarf − Inventar, mind. 1). `checkShortages(inv)` meldet alle Fehlbestände vorab (für RESTOCKING in P2-07/P4-04). Neu `HotbarSlots.parse("2-8")`: Nummern wie die Tasten 1–9, intern Index 0–8; Setting wird bei jedem Aufruf gelesen. `Printer` nutzt jetzt den MaterialManager: `Swap` kostet eine Budget-Einheit und einen Versuch, platziert wird im nächsten Durchlauf. `PrintActions.swapToHotbar` → `McPrintActions` per Meteor `InvUtils.quickSwap()` (ein SWAP-Paket), nur wenn das Spielerinventar-Menü aktiv ist. `InventoryView` um `selectedSlot()`, `itemAt(slot)`, `countAt(slot)` erweitert – Item + Anzahl statt `ItemStack`, weil `ItemStack` im Unit-Test ohne gebundene Item-Komponenten nicht erzeugbar ist. ARCHITECTURE.md §1/§3/§4 vorher ergänzt. Build + 113 Tests grün.
+- AK1 erfüllt: `MaterialManagerTest.picksAllowedSlotOverDisallowedOne` – Stein in Slot 1 (Index 0, von „2-8“ nicht erlaubt) und Slot 4 (Index 3) → `Ready(3)`. Dazu: gewählter Slot bevorzugt, Swap-Quelle/-Ziel, geänderte Settings greifen sofort, Parser.
+- AK2 erfüllt: `MaterialManagerTest.missingItemFiresEventWithAmountOncePerVisit` – 3× Stein im Cluster, Inventar leer → Event `Shortage(STONE, 3)`, beim zweiten `select` kein weiteres, nach neuem Cluster-Besuch wieder. `PrinterTest` +2 (Swap aus dem Inventar vor dem Platzieren, ein Event bei fehlendem Item).
 
 ### P2-06 · `AdditiveOnlyGuard` `todo`
 Bei `additiveOnly` keine Break-Aktion aus Printer; `BaritoneBridge.setAvoidBreaking(bbox)` beim Start, `restoreSettings()` beim Stop.
@@ -258,6 +262,9 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - `PlacementSolver`: Schild platzieren öffnet beim Server den Schild-Editor (Client-Screen) – Printer muss den Screen schließen oder `.sf`-Setting „sign text“ bekommen; in-game mit P2-07 prüfen
 - `PlacementSolver`: offene Türen/Falltüren und eingeschaltete Hebel sind `Unsupported`; nach dem Platzieren per Rechtsklick umschalten wäre möglich (Pakete über ActionBudget)
 - `PlacementSolver`: Hängeschilder, Schienen (P5-04), Druckplatten, Pflanzen, Redstone-Staub/Repeater/Comparator, Banner, Ranken haben noch keine Regel
+
+- P2-05: Hotbar-Swap in-game prüfen (mit P2-07): SWAP-Klick per `InvUtils.quickSwap()` aus Slot 9–35 und aus nicht erlaubtem Hotbar-Slot; auf Paper prüfen, dass kein Desync entsteht. Bei offenem Container-Screen wird nicht getauscht (Versuch verfällt)
+- `MaterialManager`: Restock-Schwelle (PLAN 3.1 Punkt 5 „bei Unterschreiten einer Schwelle“) gehört zu P4-04; bisher nur Event bei komplettem Fehlen bzw. `checkShortages`
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen

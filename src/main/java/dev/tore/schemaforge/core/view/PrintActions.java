@@ -14,4 +14,12 @@ public interface PrintActions {
      * @return false if nothing was sent (for example the player or the level is gone)
      */
     boolean place(PlacementPlan plan, int hotbarSlot);
+
+    /**
+     * Swaps the stacks of inventory index {@code inventorySlot} (0–35) and hotbar index {@code hotbarSlot} (0–8) with one
+     * click in the player inventory (P2-05).
+     *
+     * @return false if nothing was sent (for example another container screen is open)
+     */
+    boolean swapToHotbar(int inventorySlot, int hotbarSlot);
 }

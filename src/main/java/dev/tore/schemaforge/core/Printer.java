@@ -12,7 +12,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 
 /**
  * Tick loop that places the blocks of one cluster within reach (P2-03, rules in ARCHITECTURE.md §4).
@@ -24,6 +23,7 @@ public final class Printer {
 
     private final PlacementSolver solver;
     private final WorkPlanner planner;
+    private final MaterialManager materials;
     private final ActionBudget budget;
     private final PlacementLog log;
     private final Map<BlockPos, Integer> attempts = new HashMap<>();
@@ -35,16 +35,18 @@ public final class Printer {
     private boolean done;
     private int placed;
 
-    public Printer(PlacementSolver solver, WorkPlanner planner, ActionBudget budget, PlacementLog log) {
+    public Printer(PlacementSolver solver, WorkPlanner planner, MaterialManager materials, ActionBudget budget, PlacementLog log) {
         this.solver = solver;
         this.planner = planner;
+        this.materials = materials;
         this.budget = budget;
         this.log = log;
     }
 
-    /** Starts a new visit of {@code c}: attempts, pass and placed count start from zero. */
+    /** Starts a new visit of {@code c}: attempts, pass and placed count start from zero; the material demand is recomputed. */
     public void startCluster(Cluster c) {
         cluster = Optional.of(c);
+        materials.startCluster(c);
         attempts.clear();
         pass = List.of();
         cursor = 0;
@@ -73,14 +75,27 @@ public final class Printer {
                 cursor++;
                 continue;
             }
-            Optional<Placement> placement = prepare(task, world, player, inv);
-            if (placement.isPresent() && !budget.tryConsume()) return;
+            Optional<PlacementPlan> plan = plan(task, world, player);
+            // Missing items count as an attempt without a packet; the MaterialManager has fired the shortage event.
+            Optional<MaterialManager.Selection> selection = plan
+                .map(p -> materials.select(p.handItem(), inv))
+                .filter(s -> !(s instanceof MaterialManager.Selection.Missing));
+            if (selection.isPresent() && !budget.tryConsume()) return;
 
             attempts.merge(task.pos(), 1, Integer::sum);
             cursor++;
-            if (placement.isPresent() && actions.place(placement.get().plan(), placement.get().hotbarSlot())) {
-                placed++;
-                log.append(task.pos(), task.target(), false);
+            if (selection.isEmpty()) continue;
+            switch (selection.get()) {
+                case MaterialManager.Selection.Ready(int slot) -> {
+                    if (actions.place(plan.get(), slot)) {
+                        placed++;
+                        log.append(task.pos(), task.target(), false);
+                    }
+                }
+                // Placed in the next pass, once the item is in the hotbar.
+                case MaterialManager.Selection.Swap(int from, int to) -> actions.swapToHotbar(from, to);
+                case MaterialManager.Selection.Missing _ -> {
+                }
             }
         }
         pass = List.of();
@@ -96,20 +111,13 @@ public final class Printer {
         return placed;
     }
 
-    private record Placement(PlacementPlan plan, int hotbarSlot) {
-    }
-
-    /** A sendable placement, or empty if the task cannot be placed right now. */
-    private Optional<Placement> prepare(BlockTask task, WorldView world, PlayerView player, InventoryView inv) {
+    /** A plan the player can send from where they stand, or empty if the task cannot be placed right now. */
+    private Optional<PlacementPlan> plan(BlockTask task, WorldView world, PlayerView player) {
         // proto is evaluated from P5-06 on.
         if (!(solver.solve(task, world, player, EasyPlaceProtocol.NONE) instanceof SolveResult.Ok(PlacementPlan plan))) {
             return Optional.empty();
         }
-        if (!reachable(plan, player)) return Optional.empty();
-        // The hotbar choice moves to MaterialManager (allowedHotbarSlots) in P2-05.
-        OptionalInt slot = inv.hotbarSlotWith(plan.handItem());
-        if (slot.isEmpty()) return Optional.empty();
-        return Optional.of(new Placement(plan, slot.getAsInt()));
+        return reachable(plan, player) ? Optional.of(plan) : Optional.empty();
     }
 
     /** Same checks as the solver's candidate rating; the solver returns an unusable plan when nothing better exists. */

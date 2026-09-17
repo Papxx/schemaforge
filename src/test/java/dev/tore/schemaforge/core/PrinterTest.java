@@ -1,6 +1,5 @@
 package dev.tore.schemaforge.core;
 
-import dev.tore.schemaforge.core.view.InventoryView;
 import dev.tore.schemaforge.core.view.PlayerView;
 import dev.tore.schemaforge.core.view.PrintActions;
 import dev.tore.schemaforge.core.view.WorldView;
@@ -10,8 +9,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.Bootstrap;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -28,7 +26,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -129,7 +126,7 @@ class PrinterTest {
     @Test
     void missingItemOrUnsupportedTargetIsNeverSent() {
         Setup noItem = new Setup(row(0), 1);
-        noItem.inventory.has = false;
+        noItem.inventory.clear();
         for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) noItem.tick();
         assertTrue(noItem.printer.clusterDone());
         assertTrue(noItem.actions.sent.isEmpty());
@@ -139,6 +136,34 @@ class PrinterTest {
         for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) rail.tick();
         assertTrue(rail.printer.clusterDone());
         assertTrue(rail.actions.sent.isEmpty());
+    }
+
+    /** P2-05: item only in the main inventory → one swap into an allowed slot (budget unit), placed in the next pass. */
+    @Test
+    void itemOutsideAllowedHotbarIsSwappedInFirst() {
+        Setup s = new Setup(row(0), 1);
+        s.inventory.clear();
+        s.inventory.put(0, Items.STONE, 10).put(20, Items.STONE, 64);   // slot 1 (index 0) is not allowed by "2-8"
+
+        s.tick();
+        assertEquals(1, s.actions.swaps.size());
+        assertEquals(20, s.actions.swaps.getFirst()[0]);
+        assertTrue(HotbarSlots.parse("2-8").allows(s.actions.swaps.getFirst()[1]));
+        assertTrue(s.actions.sent.isEmpty(), "the swap used this tick's budget");
+
+        for (int i = 0; i < 2 * ROW; i++) s.tick();
+        assertEquals(ROW, s.actions.sent.size());
+        assertEquals(1, s.actions.swaps.size());
+        assertTrue(s.actions.sent.stream().allMatch(p -> HotbarSlots.parse("2-8").allows(p.slot())));
+        assertTrue(s.printer.clusterDone());
+    }
+
+    @Test
+    void missingItemFiresOneShortageEvent() {
+        Setup s = new Setup(row(0), 1);
+        s.inventory.clear();
+        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) s.tick();
+        assertEquals(List.of(new MaterialManager.Shortage(Items.STONE, ROW)), s.shortages);
     }
 
     @Test
@@ -194,8 +219,9 @@ class PrinterTest {
 
     private static final class Setup {
         final FakeWorld world = new FakeWorld();
-        final FakeInventory inventory = new FakeInventory();
-        final FakeActions actions = new FakeActions(world);
+        final FakeInventory inventory = new FakeInventory().put(SLOT, Items.STONE, 64);
+        final FakeActions actions = new FakeActions(world, inventory);
+        final List<MaterialManager.Shortage> shortages = new ArrayList<>();
         final PlacementLog log = PlacementLog.inMemory();
         final Cluster cluster;
         final Printer printer;
@@ -214,7 +240,8 @@ class PrinterTest {
             assertEquals(1, clusters.size());
             cluster = clusters.getFirst();
             budget = new ActionBudget(limit::get);
-            printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, budget, log);
+            MaterialManager materials = new MaterialManager(() -> HotbarSlots.parse("2-8"), shortages::add);
+            printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, materials, budget, log);
             printer.startCluster(cluster);
         }
 
@@ -238,11 +265,21 @@ class PrinterTest {
     /** Records every placement; if {@code accept}, the clicked block appears in the world like a server-confirmed placement. */
     private static final class FakeActions implements PrintActions {
         final FakeWorld world;
+        final FakeInventory inventory;
         final List<Sent> sent = new ArrayList<>();
+        final List<int[]> swaps = new ArrayList<>();
         boolean accept = true;
 
-        FakeActions(FakeWorld world) {
+        FakeActions(FakeWorld world, FakeInventory inventory) {
             this.world = world;
+            this.inventory = inventory;
+        }
+
+        @Override
+        public boolean swapToHotbar(int inventorySlot, int hotbarSlot) {
+            swaps.add(new int[]{inventorySlot, hotbarSlot});
+            inventory.swap(inventorySlot, hotbarSlot);
+            return true;
         }
 
         @Override
@@ -258,30 +295,6 @@ class PrinterTest {
 
         private static BlockPos target(PlacementPlan plan) {
             return plan.clickPos().relative(plan.clickFace());
-        }
-    }
-
-    private static final class FakeInventory implements InventoryView {
-        boolean has = true;
-
-        @Override
-        public int count(Item item) {
-            return has ? 64 : 0;
-        }
-
-        @Override
-        public OptionalInt hotbarSlotWith(Item item) {
-            return has ? OptionalInt.of(SLOT) : OptionalInt.empty();
-        }
-
-        @Override
-        public int freeSlots() {
-            return 0;
-        }
-
-        @Override
-        public List<ItemStack> shulkersContaining(Item item) {
-            return List.of();
         }
     }
 
