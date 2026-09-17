@@ -185,6 +185,24 @@ class PrinterTest {
     }
 
     @Test
+    void wrongBlockInWorldIsNeverTouched() {
+        BlockPos foreign = new BlockPos(2, 64, 0);
+        BlockState dirt = Blocks.DIRT.defaultBlockState();
+        for (boolean additiveOnly : new boolean[]{true, false}) {
+            Setup s = new Setup(row(0), Map.of(foreign, dirt), new AtomicInteger(10), additiveOnly);
+            BlockTask task = s.cluster.tasks().stream().filter(t -> t.pos().equals(foreign)).findFirst().orElseThrow();
+            assertEquals(additiveOnly ? TaskKind.SKIP : TaskKind.BREAK, task.kind());
+            if (additiveOnly) assertEquals(SkipReason.MISMATCH_ADDITIVE_ONLY, task.skipReason());
+
+            for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) s.tick();
+            assertEquals(ROW - 1, s.actions.sent.size());
+            assertFalse(s.actions.targets().contains(foreign));
+            assertEquals(dirt, s.world.getBlockState(foreign), "additiveOnly=" + additiveOnly);
+            assertTrue(s.printer.clusterDone());
+        }
+    }
+
+    @Test
     void placementLogWritesOneVersionedJsonLine() {
         String line = PlacementLog.toJson(new PlacementLog.Entry(new BlockPos(1, -2, 3),
             Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.EAST), true, 42L));
@@ -233,8 +251,14 @@ class PrinterTest {
         }
 
         Setup(Map<BlockPos, BlockState> targets, AtomicInteger limit) {
+            this(targets, Map.of(), limit, true);
+        }
+
+        /** {@code existing} is set after the floor, before planning. */
+        Setup(Map<BlockPos, BlockState> targets, Map<BlockPos, BlockState> existing, AtomicInteger limit, boolean additiveOnly) {
             for (BlockPos pos : targets.keySet()) world.set(pos.below(), STONE);
-            WorkPlanner planner = new WorkPlanner(new PlanConfig(16, Direction.Axis.Y, true, true, true,
+            existing.forEach(world::set);
+            WorkPlanner planner = new WorkPlanner(new PlanConfig(16, Direction.Axis.Y, true, additiveOnly, true,
                 Set.of(), Set.of(), Set.of(), Map.of(), Set.of()));
             List<Cluster> clusters = planner.plan(snapshot(targets), world, BlockPos.ZERO);
             assertEquals(1, clusters.size());

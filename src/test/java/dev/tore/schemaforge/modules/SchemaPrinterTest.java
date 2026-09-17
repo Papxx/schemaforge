@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** P2-01 AK2: the budget reset is an Orbit handler on Meteor's TickEvent.Pre. Checked without creating the module (needs a client). */
@@ -15,5 +16,13 @@ class SchemaPrinterTest {
         Class<?> module = Class.forName("dev.tore.schemaforge.modules.SchemaPrinter", false, getClass().getClassLoader());
         Method hook = module.getDeclaredMethod("onTickPre", TickEvent.Pre.class);
         assertTrue(hook.isAnnotationPresent(EventHandler.class));
+    }
+
+    /** P2-06: the AdditiveOnlyGuard is engaged on activation and released on deactivation. */
+    @Test
+    void activationHooksAreOverridden() throws ReflectiveOperationException {
+        Class<?> module = Class.forName("dev.tore.schemaforge.modules.SchemaPrinter", false, getClass().getClassLoader());
+        assertEquals(module, module.getMethod("onActivate").getDeclaringClass());
+        assertEquals(module, module.getMethod("onDeactivate").getDeclaringClass());
     }
 }

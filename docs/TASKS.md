@@ -155,10 +155,14 @@ Stand 2026-09-17: `MaterialManager` berechnet beim Cluster-Start den Bedarf (`Ma
 - AK1 erfüllt: `MaterialManagerTest.picksAllowedSlotOverDisallowedOne` – Stein in Slot 1 (Index 0, von „2-8“ nicht erlaubt) und Slot 4 (Index 3) → `Ready(3)`. Dazu: gewählter Slot bevorzugt, Swap-Quelle/-Ziel, geänderte Settings greifen sofort, Parser.
 - AK2 erfüllt: `MaterialManagerTest.missingItemFiresEventWithAmountOncePerVisit` – 3× Stein im Cluster, Inventar leer → Event `Shortage(STONE, 3)`, beim zweiten `select` kein weiteres, nach neuem Cluster-Besuch wieder. `PrinterTest` +2 (Swap aus dem Inventar vor dem Platzieren, ein Event bei fehlendem Item).
 
-### P2-06 · `AdditiveOnlyGuard` `todo`
+### P2-06 · `AdditiveOnlyGuard` `done`
 Bei `additiveOnly` keine Break-Aktion aus Printer; `BaritoneBridge.setAvoidBreaking(bbox)` beim Start, `restoreSettings()` beim Stop.
 - AK1 Manuell: Fremder Block im Baubereich bleibt stehen, erscheint in `.sf status` unter „mismatched“
 - AK2 Manuell: Modul aus → Baritone-Settings wieder wie vorher (`#modified` zeigt keine SchemaForge-Änderung)
+
+Stand 2026-09-17: `baritone.api` hat keine positionsbezogene Break-Sperre (Jar 26.2-SNAPSHOT per javap geprüft: nur `allowBreak`, `allowBreakAnyway`, Blocktyp-Listen `blocksToAvoidBreaking`/`blocksToDisallowBreaking`). Statt `setAvoidBreaking(bbox)` verbietet `core/AdditiveOnlyGuard` Baritone deshalb das Brechen während des ganzen Laufs: `engage(additiveOnly)` merkt `allowBreak` + `allowBreakAnyway` und schreibt `false` + leere Liste, `release()` schreibt die gemerkten Werte zurück – als **dieselben Objekte**, weil Baritones `modifiedSettings` per `value == defaultValue` vergleicht (eine Listen-Kopie stünde sonst in `#modified`). Ohne Baritone oder ohne additiveOnly passiert nichts; zweites `engage` überschreibt die gemerkten Werte nicht. `BaritoneBridge.isPresent()` (Klasse laden ohne Initialisierung, wie `VersionProbe`) und `BaritoneBridge.BREAK_SETTINGS` implementiert; `restoreSettings()` entfällt (liegt im Guard). `SchemaPrinter` ruft `engage(true)` in `onActivate`, `release()` in `onDeactivate` (additiveOnly fest, bis das Setting in P2-07 kommt). Printer: keine Änderung nötig – er bearbeitet nur PLACE-Tasks, `PrintActions` hat keine Break-Aktion. ARCHITECTURE.md §1/§4 vorher angepasst. Build + 120 Tests grün.
+- AK1 per Unit-Test abgesichert: `PrinterTest.wrongBlockInWorldIsNeverTouched` – Erde an einer Zielposition: mit additiveOnly `SKIP MISMATCH_ADDITIVE_ONLY`, ohne `BREAK`; in beiden Fällen kein Paket an diese Position, Block bleibt, Cluster wird fertig. In-game (`.sf status` „mismatched“) erst mit P2-07 → Backlog.
+- AK2 per Unit-Test abgesichert: `AdditiveOnlyGuardTest` (5) – nach engage/release dieselben Objekte (`assertSame`), Nutzerwerte vor dem Start bleiben, doppeltes engage, ohne Baritone/ohne additiveOnly keine Zugriffe. `SchemaPrinterTest` prüft die überschriebenen Hooks. In-game (`#modified` nach Modul aus) erst, wenn P2-07 das Modul registriert → Backlog.
 
 ### P2-07 · Modul `SchemaPrinter` + Zustandsautomat + `.sf start/pause/resume/stop/status` `todo`
 - AK1 Manuell: kompletter Durchlauf Test-Schematic in Reichweite ohne Baritone → DONE, Verifier 0 Fehler
@@ -265,6 +269,10 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 
 - P2-05: Hotbar-Swap in-game prüfen (mit P2-07): SWAP-Klick per `InvUtils.quickSwap()` aus Slot 9–35 und aus nicht erlaubtem Hotbar-Slot; auf Paper prüfen, dass kein Desync entsteht. Bei offenem Container-Screen wird nicht getauscht (Versuch verfällt)
 - `MaterialManager`: Restock-Schwelle (PLAN 3.1 Punkt 5 „bei Unterschreiten einer Schwelle“) gehört zu P4-04; bisher nur Event bei komplettem Fehlen bzw. `checkShortages`
+
+- P2-06 AK1/AK2 in-game nachholen (mit P2-07): fremder Block im Baubereich bleibt und steht in `.sf status` unter „mismatched“; nach Modul aus zeigt `#modified` kein `allowBreak`/`allowBreakAnyway`. Dabei P0-05 AK3 mitprüfen: Addon lädt ohne Baritone, `onActivate` wirft nicht
+- `AdditiveOnlyGuard`: Brechen ist während des Laufs global verboten, nicht nur im Baubereich (baritone.api kann keine Positionen). Falls Baritone dadurch Cluster nicht erreicht: eigener `IBaritoneProcess` o. Ä. prüfen, nur `baritone.api`
+- `AdditiveOnlyGuard`: speichert Baritone seine Settings (z. B. nach `#set` durch den Nutzer) während der Guard aktiv ist, landet `allowBreak false` in `settings.txt`; stürzt das Spiel vor `onDeactivate` ab, bleibt das bestehen. Ggf. beim Start einen Hinweis im Chat oder Wiederherstellen beim Beenden
 
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen

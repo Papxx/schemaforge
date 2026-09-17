@@ -25,6 +25,7 @@ dev.tore.schemaforge
 │   ├── PlacementSolver              BlockState → PlacementPlan (Klick-Seite, Blick, Hand-Item)
 │   ├── SolverConfig                 clickAdjacentOnly, lineOfSight für den PlacementSolver (P2-02)
 │   ├── Printer                      Tick-Loop, platziert innerhalb Reichweite
+│   ├── AdditiveOnlyGuard            verbietet Baritone das Brechen während des Laufs, stellt Settings wieder her (P2-06)
 │   ├── Navigator                    Cluster-/Container-Ziele an BaritoneBridge
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
 │   ├── HotbarSlots                  erlaubte Hotbar-Slots aus Setting-Text „2-8“ (P2-05)
@@ -166,13 +167,28 @@ public final class LitematicaAdapter {
 }
 
 public final class BaritoneBridge {
-    public static boolean isPresent();
+    public static boolean isPresent();                               // P2-06: baritone.api.BaritoneAPI ladbar (ohne Initialisierung)
     public static void gotoNear(BlockPos pos, int radius);           // GoalNear
     public static void gotoBlock(BlockPos pos);                      // GoalGetToBlock
     public static boolean isPathing();
     public static void stop();
-    public static void setAvoidBreaking(Set<BlockPos> protectedArea);// Schutzone um Placement
-    public static void restoreSettings();                            // beim Deaktivieren
+    public static final AdditiveOnlyGuard.PathfinderSettings BREAK_SETTINGS; // P2-06: allowBreak + allowBreakAnyway lesen/schreiben
+    // P2-06 statt setAvoidBreaking(Set<BlockPos>) / restoreSettings(): baritone.api kennt keine positionsbezogene Break-Sperre
+    //  (Settings im Jar 26.2-SNAPSHOT: nur allowBreak, allowBreakAnyway und Blocktyp-Listen). Deshalb verbietet der
+    //  AdditiveOnlyGuard Brechen während des Laufs ganz; Wiederherstellen liegt im Guard.
+}
+
+// P2-06. Additive-only-Schutz für Baritone. Printer bricht nie (nur PLACE-Tasks, PrintActions hat keine Break-Aktion);
+// mit additiveOnly plant der WorkPlanner falsche Blöcke als SKIP MISMATCH_ADDITIVE_ONLY („mismatched“ in .sf status, P2-07).
+public final class AdditiveOnlyGuard {
+    // Referenzen wie gelesen: Baritones #modified vergleicht value == defaultValue, eine Kopie gälte als Änderung.
+    public record BreakSettings(boolean allowBreak, List<Block> allowBreakAnyway) {}
+    public interface PathfinderSettings { boolean isPresent(); BreakSettings read(); void write(BreakSettings s); }
+    public AdditiveOnlyGuard(PathfinderSettings pathfinder);
+    public void engage(boolean additiveOnly);   // Start: additiveOnly && Baritone da && nicht schon aktiv → merken, dann (false, leere Liste) schreiben
+    public void release();                      // Stop: gemerkte Werte zurückschreiben (dieselben Objekte); ohne engage nichts
+    public boolean engaged();
+    // SchemaPrinter: engage in onActivate, release in onDeactivate. additiveOnly-Änderung während des Laufs greift beim nächsten Start.
 }
 
 public final class ActionBudget {
