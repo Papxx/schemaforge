@@ -165,12 +165,9 @@ Needs JDK 25.
 ./gradlew runClient      # dev client; put Litematica, MaLiLib and Fabric API jars into run/mods/
 ```
 
-Before the first `runClient`, run `python tools/patch_malilib_dev.py` once. MaLiLib switches on a GPU debug check in
-development environments that crashes Minecraft 26.2; normal game installs are not affected (details in
-`docs/NOTES-devclient-crash.md`).
-
-The design documents in `docs/` are in German: `ARCHITECTURE.md` (interfaces), `TASKS.md` (tickets and backlog),
-`PLAN.md` (background) and `TESTLOG.md` (in-game test results).
+Known issue with the dev client: in a development environment, MaLiLib's `test.MixinSharedConstants` mixin switches
+on a GPU debug check that crashes Minecraft 26.2 at the first texture tick. Remove that mixin from the MaLiLib jar in
+`run/mods/`. Normal game installs are not affected.
 
 ## License and credits
 

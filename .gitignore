@@ -63,6 +63,11 @@ __pycache__/
 files/
 files.zip
 
-# local Claude Code settings
+# local-only project material: only the mod itself goes to GitHub
+# (anchored with "/", so src/test/ is not affected)
 
-.claude/settings.local.json
+/CLAUDE.md
+/.claude/
+/docs/
+/tools/
+/test/
