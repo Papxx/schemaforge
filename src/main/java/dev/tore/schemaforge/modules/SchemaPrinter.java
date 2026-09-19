@@ -188,6 +188,12 @@ public final class SchemaPrinter extends Module {
         .defaultValue("2-8")
         .build());
 
+    private final Setting<Boolean> handleFluids = sgPlacement.add(new BoolSetting.Builder()
+        .name("handle-fluids")
+        .description("Place water and lava sources from the schematic with buckets, clicking a neighbour block.")
+        .defaultValue(false)
+        .build());
+
     private final Setting<Boolean> pauseOnDamage = sgSafety.add(new BoolSetting.Builder()
         .name("pause-on-damage")
         .description("Pause the build when the player takes damage; continue with .sf resume.")
@@ -360,7 +366,7 @@ public final class SchemaPrinter extends Module {
         MaterialManager materials = new MaterialManager(this::currentHotbarSlots, this::onShortage);
         Printer printer = new Printer(new PlacementSolver(new SolverConfig(clickAdjacentOnly.get(), lineOfSight.get())),
             planner, materials, budget, PlacementLog.toFile(FOLDER.resolve("placementlog-" + fileName(name) + ".jsonl")),
-            new Printer.Options(supportsForRun(snapshot.get()), note -> warning("%s", note)));
+            new Printer.Options(supportsForRun(snapshot.get()), handleFluids.get(), note -> warning("%s", note)));
 
         rotationSpoofInRun = rotationSpoof.get();
         tickCounter = 0;

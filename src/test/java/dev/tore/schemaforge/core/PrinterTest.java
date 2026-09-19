@@ -12,6 +12,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -297,7 +298,67 @@ class PrinterTest {
                 world.set(pos, Blocks.AIR.defaultBlockState());
                 return true;
             }, _ -> {
-            })), _ -> {
+            })), false, _ -> {
+            }));
+    }
+
+    // --- P5-03 fluids -------------------------------------------------------------------------------
+
+    @Test
+    void waterSourceIsPlacedWithABucketAndNotLogged() {
+        BlockPos pos = new BlockPos(2, 64, 0);
+        Setup s = fluids(Map.of(pos, Blocks.WATER.defaultBlockState()), true);
+        s.inventory.put(5, Items.WATER_BUCKET, 1);
+        for (int i = 0; i < 5 && !s.printer.clusterDone(); i++) s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertEquals(1, s.actions.buckets.size());
+        assertTrue(s.actions.sent.isEmpty(), "no block placement for a fluid");
+        assertEquals(Items.WATER_BUCKET, s.actions.buckets.getFirst().plan().handItem());
+        assertEquals(Blocks.WATER.defaultBlockState(), s.world.getBlockState(pos));
+        assertEquals(1, s.printer.placedCount());
+        assertTrue(s.log.entries().isEmpty(), "undo cannot take a fluid back");
+    }
+
+    @Test
+    void fluidsAreLeftAloneWhenFluidHandlingIsOff() {
+        Setup s = fluids(Map.of(new BlockPos(2, 64, 0), Blocks.WATER.defaultBlockState()), false);
+        s.inventory.put(5, Items.WATER_BUCKET, 1);
+        s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertTrue(s.actions.buckets.isEmpty());
+        assertFalse(s.printer.works(s.cluster.tasks().getFirst()));
+    }
+
+    /** Source check: flowing water where a source belongs does not finish the task; it is retried, then given up. */
+    @Test
+    void onlyASourceBlockCountsAsPlaced() {
+        Setup s = fluids(Map.of(new BlockPos(2, 64, 0), Blocks.WATER.defaultBlockState()), true);
+        s.inventory.put(5, Items.WATER_BUCKET, 1);
+        s.actions.flowingOnly = true;
+        for (int i = 0; i < 10 && !s.printer.clusterDone(); i++) s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertEquals(Printer.MAX_ATTEMPTS, s.actions.buckets.size());
+    }
+
+    /** Blocks before fluids: the stone of the cluster goes first, the water last. */
+    @Test
+    void fluidsComeLastInTheCluster() {
+        BlockPos water = new BlockPos(1, 64, 0);
+        BlockPos stone = new BlockPos(3, 64, 0);
+        Setup s = fluids(Map.of(water, Blocks.WATER.defaultBlockState(), stone, STONE), true);
+        s.inventory.put(5, Items.WATER_BUCKET, 1);
+        s.tick();
+        assertEquals(List.of(stone), s.actions.targets());
+        assertTrue(s.actions.buckets.isEmpty());
+        for (int i = 0; i < 6 && !s.printer.clusterDone(); i++) s.tick();
+        assertEquals(1, s.actions.buckets.size());
+        PlacementPlan bucket = s.actions.buckets.getFirst().plan();
+        assertEquals(water, bucket.clickPos().relative(bucket.clickFace()));
+    }
+
+    private static Setup fluids(Map<BlockPos, BlockState> targets, boolean handleFluids) {
+        return new Setup(targets, Map.of(), new AtomicInteger(1), true, true,
+            _ -> new Printer.Options(Optional.empty(), handleFluids, _ -> {
             }));
     }
 
@@ -376,7 +437,10 @@ class PrinterTest {
         final FakeInventory inventory;
         final List<Sent> sent = new ArrayList<>();
         final List<int[]> swaps = new ArrayList<>();
+        final List<Sent> buckets = new ArrayList<>();
         boolean accept = true;
+        /** The bucket leaves flowing water instead of a source. */
+        boolean flowingOnly;
 
         FakeActions(FakeWorld world, FakeInventory inventory) {
             this.world = world;
@@ -394,6 +458,15 @@ class PrinterTest {
         public boolean place(PlacementPlan plan, int hotbarSlot) {
             sent.add(new Sent(plan, hotbarSlot));
             if (accept) world.set(target(plan), Block.byItem(plan.handItem()).defaultBlockState());
+            return true;
+        }
+
+        @Override
+        public boolean useBucket(PlacementPlan plan, int hotbarSlot) {
+            buckets.add(new Sent(plan, hotbarSlot));
+            BlockState fluid = plan.handItem() == Items.LAVA_BUCKET ? Blocks.LAVA.defaultBlockState() : Blocks.WATER.defaultBlockState();
+            if (flowingOnly) fluid = fluid.setValue(LiquidBlock.LEVEL, 2);
+            if (accept) world.set(target(plan), fluid);
             return true;
         }
 

@@ -47,6 +47,21 @@ class BuildSessionTest {
         stone = Blocks.STONE.defaultBlockState();
     }
 
+    /** P5-03: a cluster that only holds a water source is worked on with fluid handling and skipped without it. */
+    @Test
+    void fluidOnlyClusterIsVisitedOnlyWithFluidHandling() {
+        BlockPos water = new BlockPos(1, 64, 1);
+        for (boolean handleFluids : new boolean[]{true, false}) {
+            Setup s = new Setup(Map.of(water, Blocks.WATER.defaultBlockState()), Map.of(), handleFluids);
+            s.inventory.put(4, Items.WATER_BUCKET, 1);
+            s.session.start();
+            s.tickUntilDone();
+            assertEquals(handleFluids ? List.of(water) : List.of(), s.actions.placed, "handleFluids=" + handleFluids);
+            assertEquals(handleFluids ? 1 : 0, s.session.status().placed());
+            assertEquals(0, s.session.status().remaining(), "an unhandled fluid is not counted as left to do");
+        }
+    }
+
     @Test
     void runsThroughPlanningBuildingVerifyingToDone() {
         Setup s = new Setup(rows(1));
@@ -382,6 +397,10 @@ class BuildSessionTest {
         }
 
         Setup(Map<BlockPos, BlockState> targets, Map<BlockPos, BlockState> existing) {
+            this(targets, existing, false);
+        }
+
+        Setup(Map<BlockPos, BlockState> targets, Map<BlockPos, BlockState> existing, boolean handleFluids) {
             this.targets = targets;
             for (BlockPos pos : targets.keySet()) world.set(pos.below(), stone);
             existing.forEach(world::set);
@@ -390,7 +409,8 @@ class BuildSessionTest {
             MaterialManager materials = new MaterialManager(() -> HotbarSlots.parse("1-9"), _ -> {
             });
             Printer printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, materials, budget,
-                PlacementLog.inMemory());
+                PlacementLog.inMemory(), new Printer.Options(Optional.empty(), handleFluids, _ -> {
+                }));
             navigator = new Navigator(pathing, clock::get);
             session = new BuildSession(snapshot(targets), planner, printer, navigator,
                 new SafetyMonitor(() -> safetyConfig), clock::get, (_, to) -> states.add(to), notes::add);
@@ -449,6 +469,14 @@ class BuildSessionTest {
         @Override
         public boolean swapToHotbar(int inventorySlot, int hotbarSlot) {
             return false;
+        }
+
+        @Override
+        public boolean useBucket(PlacementPlan plan, int hotbarSlot) {
+            BlockPos target = plan.clickPos().relative(plan.clickFace());
+            placed.add(target);
+            if (accept) world.set(target, Blocks.WATER.defaultBlockState());
+            return true;
         }
     }
 

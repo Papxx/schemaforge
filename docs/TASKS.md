@@ -494,7 +494,32 @@ vorher ergänzt. Build + 243 Tests grün.
   (Stein, obere Stufe ja; Fackel, Teppich, Tür, Leiter nein), Position muss frei, geladen und nicht reserviert sein,
   Reihenfolge der Whitelist.
 - In-game-Test **offen** → TESTLOG (schwebende Blöcke mit `additive-only` aus und `temp-supports` an).
-### P5-03 · Fluids `todo` — Bucket vom Nachbarblock, Quellblock-Check, Setting `handleFluids`
+### P5-03 · Fluids `done` — Bucket vom Nachbarblock, Quellblock-Check, Setting `handleFluids`
+
+Stand 2026-09-19: FLUID-Tasks plante der `WorkPlanner` schon seit P1-03, jetzt arbeitet der `Printer` sie ab, wenn
+`handle-fluids` an ist (Default aus: Wasser fließt, das soll niemand ungefragt bekommen). `PlacementSolver.solveFluid`
+wählt wie bei Blöcken einen Nachbarn mit voller Fläche zum Ziel und zielt auf die Flächenmitte; `BucketItem.use` (26.2
+per `javap` nachgelesen) raycastet mit `ClipContext.Fluid.NONE` und setzt die Flüssigkeit **vor** die getroffene Fläche –
+außer der getroffene Block ist ein `LiquidBlockContainer` und der Eimer enthält Wasser, dann flutet er den Block selbst.
+Solche Nachbarn scheiden für Wasser deshalb aus. Die Zielposition muss Luft oder Flüssigkeit sein, sonst fängt z. B.
+Gras den Strahl ab. Der Plan braucht immer eine echte Rotation, weil der Server mit der Rotation aus dem Use-Paket
+raycastet. Neu `PrintActions.useBucket`: in `McPrintActions` über dieselbe Rotations-Queue wie das Platzieren, im
+Callback wird die Spieler-Rotation für die Dauer von `MultiPlayerGameMode.useItem` auf den Plan gesetzt und danach
+zurückgestellt (Meteor setzt sie bei Spoof bzw. ab der zweiten Rotation eines Ticks nicht selbst).
+**Quellblock-Check:** der nächste `refresh` sieht fließendes Wasser als Luft, der Task bleibt also offen, bis dort eine
+Quelle steht oder die drei Versuche verbraucht sind. Fluids haben die niedrigste Priorität und kommen damit zuletzt im
+Cluster. `Printer.works(task)` (PLACE, oder FLUID mit `handle-fluids`) ersetzt in `BuildSession` die feste PLACE-Prüfung
+– ein Cluster, der nur eine Quelle enthält, wird sonst nie angelaufen. Fluids zählen in `placed`, kommen aber **nicht**
+ins `PlacementLog`: Undo baut Blöcke ab und könnte eine Quelle nicht zurücknehmen. ARCHITECTURE.md §3/§4/§7 vorher
+ergänzt. Build + 251 Tests grün.
+- `PlacementSolverTest` (+3): Wasser auf die Bodenfläche mit echter Rotation, Wasser nie gegen eine obere Stufe
+  (waterloggable), Lava schon; Ziel mit Gras → Unsupported, fließendes Ziel ist kein Quellblock, fließendes Wasser am
+  Ziel wird ersetzt.
+- `PrinterTest` (+4): Quelle per Eimer, nicht im Log; ohne `handle-fluids` bleibt sie liegen; nur eine Quelle zählt –
+  fließendes Wasser wird bis zum Versuchslimit wiederholt; Blöcke vor Fluids im Cluster.
+- `BuildSessionTest` (+1): Cluster nur mit Wasser wird mit `handle-fluids` angelaufen, ohne übersprungen und nicht als
+  offen gezählt.
+- In-game-Test **offen** → TESTLOG (Wasser-/Lava-Quellen, Eimer im Inventar, auch mit `rotation-spoof`).
 ### P5-04 · Rails `todo` — Reihenfolge gerade→Kurve, Verifier-Gegencheck
 ### P5-05 · Profil FAST `todo` — `blocksPerTick` > 1, `rotationSpoof`, Warnung im Chat beim Aktivieren
 ### P5-06 · EasyPlace-Protokoll nutzen `todo` — wenn V2/V3 erkannt: Property-Encoding im `hitVec` laut Carpet-Protokoll (Spezifikation aus `refs/meteor-client`? nein – aus Litematica-Quelle / PaperAccurateBlockPlacement-README ableiten, in ARCHITECTURE.md dokumentieren)
@@ -588,6 +613,10 @@ vorher ergänzt. Build + 243 Tests grün.
 - `TempSupports`: wird ein Lauf mitten im Cluster gestoppt, bleiben dessen Stützblöcke stehen. Sie stehen mit `temp=true`
   im Log; ein gezieltes „nur temp-Blöcke abräumen“ (`.sf undo temp`) gibt es noch nicht
 - P5-02 in-game nachholen: schwebende Blöcke / obere Stufen ohne Träger mit `additive-only` aus und `temp-supports` an
+- P5-03 in-game nachholen: Wasser- und Lava-Quellen einer Schematic mit `handle-fluids` an, einmal mit und einmal ohne
+  `rotation-spoof`; prüfen, dass der Server die Quelle setzt und kein Nachbarblock geflutet wird
+- Fluids: leere Eimer werden nicht wieder aufgefüllt (z. B. an einer unendlichen Quelle); jede Quelle braucht einen vollen
+  Eimer aus Inventar oder Restock
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

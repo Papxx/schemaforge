@@ -32,7 +32,7 @@ public final class BuildSession {
     /**
      * @param clusterIndex 1-based position of the current cluster, 0 before the first one
      * @param mismatched   SKIP tasks with {@link SkipReason#MISMATCH_ADDITIVE_ONLY} in the latest plan
-     * @param remaining    PLACE tasks in the latest plan
+     * @param remaining    tasks the printer works on (PLACE, FLUID with fluid handling) in the latest plan
      */
     public record Status(State state, String placement, int round, int clusterIndex, int clusterCount,
                          int placed, double blocksPerMinute, int mismatched, int remaining) {
@@ -233,7 +233,7 @@ public final class BuildSession {
     }
 
     /**
-     * Moves to the next cluster with a PLACE task; false if none is left in this round.
+     * Moves to the next cluster with a task the printer works on; false if none is left in this round.
      * A cluster out of reach is walked to first (state TRAVELING), blacklisted ones are skipped (P3-02).
      */
     private boolean nextCluster(PlayerView player) {
@@ -241,7 +241,7 @@ public final class BuildSession {
         visitOpen = false;
         while (++current < clusters.size()) {
             Cluster c = clusters.get(current);
-            if (c.tasks().stream().noneMatch(t -> t.kind() == TaskKind.PLACE)) continue;
+            if (c.tasks().stream().noneMatch(printer::works)) continue;
             if (navigator.blacklisted(c.center())) continue;
             if (!inReach(c, player) && navigator.start(c.center())) {
                 enter(State.TRAVELING);
@@ -294,11 +294,11 @@ public final class BuildSession {
         current--;
     }
 
-    /** True if a PLACE task of the cluster is close enough for the printer to try it from here. */
+    /** True if a task of the cluster the printer works on is close enough to try it from here. */
     private boolean inReach(Cluster c, PlayerView player) {
         double reach = player.reach();
         return c.tasks().stream()
-            .filter(t -> t.kind() == TaskKind.PLACE)
+            .filter(printer::works)
             .anyMatch(t -> player.eyePos().distanceTo(Vec3.atCenterOf(t.pos())) <= reach);
     }
 
@@ -325,7 +325,7 @@ public final class BuildSession {
         resumeFrom = 0;
         placedInRound = 0;
         List<BlockTask> tasks = clusters.stream().flatMap(c -> c.tasks().stream()).toList();
-        remaining = (int) tasks.stream().filter(t -> t.kind() == TaskKind.PLACE).count();
+        remaining = (int) tasks.stream().filter(printer::works).count();
         mismatched = (int) tasks.stream().filter(t -> t.skipReason() == SkipReason.MISMATCH_ADDITIVE_ONLY).count();
     }
 

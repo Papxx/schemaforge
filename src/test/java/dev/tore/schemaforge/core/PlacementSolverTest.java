@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.ButtonBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.LadderBlock;
 import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.RedstoneWallTorchBlock;
 import net.minecraft.world.level.block.StandingSignBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
@@ -334,6 +335,55 @@ class PlacementSolverTest {
         for (BlockState target : targets) {
             assertInstanceOf(SolveResult.NeedsSupport.class, solve(solver(false), target, new FakeWorld()), target.toString());
         }
+    }
+
+    // --- P5-03 fluids -------------------------------------------------------------------------------
+
+    @Test
+    void waterSourceIsPouredOntoTheFloorFaceWithARealRotation() {
+        BlockTask task = fluidTask(Blocks.WATER.defaultBlockState());
+        SolveResult result = solver(true).solveFluid(task, new FakeWorld().set(POS.below(), STONE), NORTH_OF_TARGET);
+        PlacementPlan plan = assertInstanceOf(SolveResult.Ok.class, result).plan();
+        assertEquals(POS.below(), plan.clickPos());
+        assertEquals(Direction.UP, plan.clickFace());
+        assertEquals(Items.WATER_BUCKET, plan.handItem());
+        assertTrue(plan.requiresRealRotation(), "the server raycasts from the packet rotation");
+        assertFalse(plan.sneak());
+        assertEquals(POS, plan.clickPos().relative(plan.clickFace()), "the fluid lands in the target");
+    }
+
+    @Test
+    void waterIsNeverPouredAgainstAWaterloggableBlockButLavaIs() {
+        BlockState topSlab = Blocks.OAK_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.TOP);
+        FakeWorld world = new FakeWorld().set(POS.below(), topSlab);
+        assertInstanceOf(SolveResult.NeedsSupport.class,
+            solver(true).solveFluid(fluidTask(Blocks.WATER.defaultBlockState()), world, NORTH_OF_TARGET),
+            "the bucket would waterlog the slab instead");
+        PlacementPlan lava = assertInstanceOf(SolveResult.Ok.class,
+            solver(true).solveFluid(fluidTask(Blocks.LAVA.defaultBlockState()), world, NORTH_OF_TARGET)).plan();
+        assertEquals(Items.LAVA_BUCKET, lava.handItem());
+        assertEquals(POS.below(), lava.clickPos());
+    }
+
+    @Test
+    void fluidTargetMustBeEmptyAndASource() {
+        FakeWorld grass = new FakeWorld().set(POS.below(), STONE).set(POS, Blocks.SHORT_GRASS.defaultBlockState());
+        assertInstanceOf(SolveResult.Unsupported.class,
+            solver(true).solveFluid(fluidTask(Blocks.WATER.defaultBlockState()), grass, NORTH_OF_TARGET),
+            "grass would catch the raycast");
+
+        BlockState flowing = Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL, 3);
+        FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
+        assertInstanceOf(SolveResult.Unsupported.class, solver(true).solveFluid(fluidTask(flowing), floor, NORTH_OF_TARGET));
+
+        FakeWorld flowingThere = new FakeWorld().set(POS.below(), STONE).set(POS, flowing);
+        assertInstanceOf(SolveResult.Ok.class,
+            solver(true).solveFluid(fluidTask(Blocks.WATER.defaultBlockState()), flowingThere, NORTH_OF_TARGET),
+            "flowing water is replaced by the source");
+    }
+
+    private static BlockTask fluidTask(BlockState target) {
+        return new BlockTask(POS, target, Blocks.AIR.defaultBlockState(), TaskKind.FLUID, WorkPlanner.PRIORITY_FLUID, SkipReason.NONE);
     }
 
     private static BlockState wallButton(Direction facing) {

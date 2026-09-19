@@ -22,4 +22,12 @@ public interface PrintActions {
      * @return false if nothing was sent (for example another container screen is open)
      */
     boolean swapToHotbar(int inventorySlot, int hotbarSlot);
+
+    /**
+     * Selects {@code hotbarSlot}, looks at {@code plan.hitVec()} and uses the held item there - a bucket emptying into
+     * the block in front of the clicked face (P5-03). The server raycasts from the rotation in the use packet.
+     *
+     * @return false if nothing was sent
+     */
+    boolean useBucket(PlacementPlan plan, int hotbarSlot);
 }

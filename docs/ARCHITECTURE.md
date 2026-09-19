@@ -148,6 +148,7 @@ public interface SafetyView {
 public interface PrintActions {
     boolean place(PlacementPlan plan, int hotbarSlot);   // Slot wählen, rotieren, schleichend klicken; false = nichts gesendet
     boolean swapToHotbar(int inventorySlot, int hotbarSlot);   // P2-05: ein SWAP-Klick im Spielerinventar; false = nichts gesendet
+    boolean useBucket(PlacementPlan plan, int hotbarSlot);     // P5-03: Slot wählen, auf hitVec blicken, Item benutzen (Use-Paket)
 }
 ```
 
@@ -309,6 +310,14 @@ public final class PlacementSolver {
     //  StandingSign ROTATION r: Seite UP, Yaw = r·22,5° − 180° (±11°, RotationSegment) · Hängeschilder, Schienen u. a. weiter Unsupported
     //  NeedsSupport bei Wandblöcken = Nachbar hinter FACING, bei CEILING/TrapDoor TOP = oben, sonst unten.
     public static Optional<String> unsupportedReason(BlockState target); // unabhängig von Welt/Spieler; leer = Regel vorhanden (für .sf preview)
+    public static boolean standsWithoutSupport(BlockState target);   // P5-02
+    public SolveResult solveFluid(BlockTask task, WorldView world, PlayerView player);   // P5-03
+    // P5-03: nur FLUID-Tasks mit Quellblock-Ziel (Wasser/Lava LEVEL 0). Die Zielposition muss Luft oder Flüssigkeit sein –
+    //  sonst trifft der Server-Raycast (ClipContext.Fluid.NONE, Outline) z. B. Gras davor. Kandidaten wie bei Blöcken:
+    //  Nachbar N mit voller Fläche zum Ziel, clickFace = Richtung N→Ziel, hitVec = Flächenmitte; Wasser nie gegen einen
+    //  LiquidBlockContainer (BucketItem.use würde den Nachbarn fluten statt das Ziel). Plan: handItem = Eimer,
+    //  requiresRealRotation = true (der Server raycastet mit der Rotation des Use-Pakets), sneak = false.
+    //  Kein Nachbar → NeedsSupport(unten), Ziel belegt → Unsupported.
 }
 
 // P2-03. Tick-Loop für genau einen Cluster; Navigation und Zustandsautomat liegen in SchemaPrinter (P2-07).
@@ -341,6 +350,12 @@ public record Printer.Options(Optional<TempSupports> supports, boolean handleFlu
 //  Versuch für den Ziel-Task, PlacementLog.append(at, block, temp=true), nicht in placedCount. Kein Stützblock für den
 //  Stützblock (keine Kette). clusterDone erst, wenn alle Stützblöcke dieses Besuchs wieder weg sind: Abbau über eine
 //  UndoSession (nur wo noch genau der geloggte Block steht, eine Budget-Einheit je Schritt).
+// P5-03: handleFluids → FLUID-Tasks laufen im selben Durchlauf wie PLACE (priority 50, also zuletzt im Cluster):
+//  solveFluid, gleiche Reichweiten-/Sicht-/Budget-/Versuchsregeln, gesendet über useBucket; zählt in placedCount, kommt
+//  aber nicht ins PlacementLog (Undo baut Blöcke ab und kann keine Quelle zurücknehmen).
+//  Quellblock-Check: der nächste refresh sieht fließendes Wasser als Luft → der Task bleibt offen, bis dort eine Quelle
+//  steht oder die Versuche aufgebraucht sind. works(task) = PLACE oder (FLUID und handleFluids) – BuildSession nutzt es
+//  für Cluster-Auswahl, Reichweite und remaining.
 
 // P5-02. Temporäre Stützblöcke; nur mit additiveOnly=false (SchemaPrinter legt sonst keine an, der Printer hat dann
 // keinen Weg zu brechen).
@@ -660,6 +675,7 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 | Placement | clickAdjacentOnly | bool | true |
 | Placement | rotationSpoof | bool | false |
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
+| Placement | handleFluids | bool | false |  ← P5-03; Wasser/Lava-Quellen per Eimer vom Nachbarblock
 | Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P3-03; Radius 0 schaltet die Spielerprüfung ab
 | Supports | tempSupports / supportBlocks | bool / BlockList | false / dirt, cobblestone, netherrack |  ← P5-02; nur sichtbar und wirksam mit additiveOnly=false
 

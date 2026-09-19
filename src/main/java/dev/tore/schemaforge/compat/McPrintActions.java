@@ -55,6 +55,36 @@ public final class McPrintActions implements PrintActions {
         return true;
     }
 
+    /**
+     * P5-03: {@code MultiPlayerGameMode.useItem} sends the use packet with the player's own rotation, and
+     * {@code BucketItem.use} raycasts from it on both sides. With rotation spoofing (or as a later rotation of the same
+     * tick) the player's rotation in the callback is not the planned one, so it is set for the duration of the use and
+     * put back afterwards; Meteor's rotation queue handles camera and movement packets as for placing.
+     */
+    @Override
+    public boolean useBucket(PlacementPlan plan, int hotbarSlot) {
+        if (mc.player == null || mc.gameMode == null || mc.getConnection() == null) return false;
+        Rotations.rotate(plan.yaw(), plan.pitch(), ROTATION_PRIORITY, !rotationSpoof, () -> use(plan, hotbarSlot));
+        return true;
+    }
+
+    private void use(PlacementPlan plan, int hotbarSlot) {
+        LocalPlayer player = mc.player;
+        if (player == null || mc.gameMode == null) return;
+        if (!InvUtils.swap(hotbarSlot, false)) return;
+        float yaw = player.getYRot();
+        float pitch = player.getXRot();
+        player.setYRot(plan.yaw());
+        player.setXRot(plan.pitch());
+        try {
+            InteractionResult result = mc.gameMode.useItem(player, InteractionHand.MAIN_HAND);
+            if (result.consumesAction()) player.swing(InteractionHand.MAIN_HAND);
+        } finally {
+            player.setYRot(yaw);
+            player.setXRot(pitch);
+        }
+    }
+
     private void click(BlockHitResult hit, int hotbarSlot, boolean sneak) {
         LocalPlayer player = mc.player;
         ClientPacketListener connection = mc.getConnection();

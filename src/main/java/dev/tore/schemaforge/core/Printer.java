@@ -28,12 +28,13 @@ public final class Printer {
     /**
      * Optional behaviour on top of plain printing.
      *
-     * @param supports temporary support blocks (P5-02); empty with additive-only on
-     * @param notes    user-facing one-liners
+     * @param supports     temporary support blocks (P5-02); empty with additive-only on
+     * @param handleFluids place water and lava sources with a bucket (P5-03)
+     * @param notes        user-facing one-liners
      */
-    public record Options(Optional<TempSupports> supports, Consumer<String> notes) {
+    public record Options(Optional<TempSupports> supports, boolean handleFluids, Consumer<String> notes) {
         public static Options defaults() {
-            return new Options(Optional.empty(), _ -> {
+            return new Options(Optional.empty(), false, _ -> {
             });
         }
     }
@@ -84,7 +85,7 @@ public final class Printer {
         if (cluster.isEmpty() || done) return;
         if (pass.isEmpty()) {
             pass = planner.refresh(cluster.get(), world).stream()
-                .filter(t -> t.kind() == TaskKind.PLACE && attempts.getOrDefault(t.pos(), 0) < MAX_ATTEMPTS)
+                .filter(t -> works(t) && attempts.getOrDefault(t.pos(), 0) < MAX_ATTEMPTS)
                 .toList();
             cursor = 0;
             if (pass.isEmpty()) {
@@ -118,7 +119,8 @@ public final class Printer {
             if (selection.isEmpty()) continue;
             switch (selection.get()) {
                 case MaterialManager.Selection.Ready(int slot) -> {
-                    if (actions.place(step.get().plan(), slot)) sent(step.get());
+                    Step s = step.get();
+                    if (s.fluid() ? actions.useBucket(s.plan(), slot) : actions.place(s.plan(), slot)) sent(s);
                 }
                 // Placed in the next pass, once the item is in the hotbar.
                 case MaterialManager.Selection.Swap(int from, int to) -> actions.swapToHotbar(from, to);
@@ -129,7 +131,15 @@ public final class Printer {
         pass = List.of();
     }
 
-    /** True once no PLACE task of the cluster is left that still has attempts and its temporary supports are gone. */
+    /**
+     * Tasks this printer works on: PLACE, and FLUID with fluid handling on (P5-03). The build session uses it to pick
+     * clusters and to count what is left.
+     */
+    public boolean works(BlockTask task) {
+        return task.kind() == TaskKind.PLACE || (task.kind() == TaskKind.FLUID && options.handleFluids());
+    }
+
+    /** True once no task of the cluster is left that still has attempts and its temporary supports are gone. */
     public boolean clusterDone() {
         return done;
     }
@@ -156,12 +166,14 @@ public final class Printer {
      * @param pos   where the block appears
      * @param block the block that appears there
      * @param temp  true for a temporary support
+     * @param fluid true for a bucket use (P5-03)
      */
-    private record Step(PlacementPlan plan, BlockPos pos, BlockState block, boolean temp) {
+    private record Step(PlacementPlan plan, BlockPos pos, BlockState block, boolean temp, boolean fluid) {
     }
 
     private void sent(Step step) {
-        log.append(step.pos(), step.block(), step.temp());
+        // Fluids stay out of the log: undo mines blocks and cannot take a source back (P5-03).
+        if (!step.fluid()) log.append(step.pos(), step.block(), step.temp());
         if (step.temp()) {
             options.supports().ifPresent(s -> s.placed(step.pos(), step.block()));
         } else {
@@ -171,11 +183,13 @@ public final class Printer {
 
     /** A step the player can send from where they stand, or empty if the task cannot be worked on right now. */
     private Optional<Step> step(BlockTask task, WorldView world, PlayerView player, InventoryView inv) {
+        boolean fluid = task.kind() == TaskKind.FLUID;
         // proto is evaluated from P5-06 on.
-        SolveResult result = solver.solve(task, world, player, EasyPlaceProtocol.NONE);
+        SolveResult result = fluid ? solver.solveFluid(task, world, player) : solver.solve(task, world, player, EasyPlaceProtocol.NONE);
         if (result instanceof SolveResult.Ok(PlacementPlan plan)) {
-            return reachable(plan, player) ? Optional.of(new Step(plan, task.pos(), task.target(), false)) : Optional.empty();
+            return reachable(plan, player) ? Optional.of(new Step(plan, task.pos(), task.target(), false, fluid)) : Optional.empty();
         }
+        if (fluid) return Optional.empty();
         if (result instanceof SolveResult.NeedsSupport(BlockPos at)) return support(task, at, world, player, inv);
         return Optional.empty();
     }
@@ -192,7 +206,7 @@ public final class Printer {
         if (!(solver.solve(supportTask, world, player, EasyPlaceProtocol.NONE) instanceof SolveResult.Ok(PlacementPlan plan))) {
             return Optional.empty();
         }
-        return reachable(plan, player) ? Optional.of(new Step(plan, at, state, true)) : Optional.empty();
+        return reachable(plan, player) ? Optional.of(new Step(plan, at, state, true, false)) : Optional.empty();
     }
 
     /** Same checks as the solver's candidate rating; the solver returns an unusable plan when nothing better exists. */

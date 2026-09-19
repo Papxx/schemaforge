@@ -20,6 +20,8 @@ import net.minecraft.world.level.block.GlazedTerracottaBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.LadderBlock;
 import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.LiquidBlockContainer;
 import net.minecraft.world.level.block.RedstoneTorchBlock;
 import net.minecraft.world.level.block.RedstoneWallTorchBlock;
 import net.minecraft.world.level.block.RotatedPillarBlock;
@@ -39,6 +41,7 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -119,6 +122,48 @@ public final class PlacementSolver {
         if (yawTarget.isPresent()) yaw = yawTarget.get().clamp(yaw);
         return new SolveResult.Ok(new PlacementPlan(c.clickPos(), c.clickFace(), c.hitVec(), Mth.wrapDegrees(yaw), pitch,
             yawTarget.isPresent(), item, true));
+    }
+
+    /**
+     * A bucket click for a FLUID task (P5-03): the face of a neighbour towards the target, so the fluid lands in the
+     * target position. The server raycasts from the rotation of the use packet, so the plan always needs a real rotation.
+     */
+    public SolveResult solveFluid(BlockTask task, WorldView world, PlayerView player) {
+        if (task.kind() != TaskKind.FLUID) return new SolveResult.Unsupported("not a FLUID task: " + task.kind());
+        BlockState target = task.target();
+        Item bucket = target.getBlock() instanceof LiquidBlock && target.getValue(LiquidBlock.LEVEL) == 0
+            ? MaterialRules.required(target).stream().map(MaterialRules.Requirement::item).findFirst().orElse(Items.AIR)
+            : Items.AIR;
+        if (bucket == Items.AIR) return new SolveResult.Unsupported("no fluid source");
+        BlockPos pos = task.pos();
+        BlockState current = world.getBlockState(pos);
+        // Anything with an outline in the target position would catch the server's raycast first.
+        if (!current.isAir() && !(current.getBlock() instanceof LiquidBlock)) return new SolveResult.Unsupported("fluid target not empty");
+        boolean water = target.getFluidState().is(Fluids.WATER);
+
+        List<Candidate> candidates = new ArrayList<>();
+        for (Direction toNeighbour : Direction.values()) {
+            Direction clickFace = toNeighbour.getOpposite();
+            BlockPos neighbour = pos.relative(toNeighbour);
+            BlockState state = world.getBlockState(neighbour);
+            if (!isSupport(state, clickFace)) continue;
+            // A water bucket fills a waterloggable block it is used on instead of the block in front of it.
+            if (water && state.getBlock() instanceof LiquidBlockContainer) continue;
+            Vec3 center = Vec3.atCenterOf(pos);
+            Vec3 hit = center.add(toNeighbour.getStepX() * 0.5, toNeighbour.getStepY() * 0.5, toNeighbour.getStepZ() * 0.5);
+            candidates.add(candidate(neighbour, clickFace, hit, true, player));
+        }
+        Optional<Candidate> best = candidates.stream().min(Comparator
+            .comparing((Candidate c) -> !c.usable())
+            .thenComparingDouble(Candidate::distance));
+        if (best.isEmpty()) return new SolveResult.NeedsSupport(pos.below());
+
+        Candidate c = best.get();
+        Vec3 look = c.hitVec().subtract(player.eyePos());
+        float yaw = (float) Math.toDegrees(Math.atan2(-look.x, look.z));
+        float pitch = (float) -Math.toDegrees(Math.atan2(look.y, look.horizontalDistance()));
+        return new SolveResult.Ok(new PlacementPlan(c.clickPos(), c.clickFace(), c.hitVec(), Mth.wrapDegrees(yaw), pitch,
+            true, bucket, false));
     }
 
     /**
