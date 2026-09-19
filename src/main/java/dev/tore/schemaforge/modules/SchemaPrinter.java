@@ -12,6 +12,7 @@ import dev.tore.schemaforge.core.AdditiveOnlyGuard;
 import dev.tore.schemaforge.core.BuildSession;
 import dev.tore.schemaforge.core.HotbarSlots;
 import dev.tore.schemaforge.core.MaterialManager;
+import dev.tore.schemaforge.core.Navigator;
 import dev.tore.schemaforge.core.PlacementLog;
 import dev.tore.schemaforge.core.PlacementSolver;
 import dev.tore.schemaforge.core.PlanConfig;
@@ -187,6 +188,8 @@ public final class SchemaPrinter extends Module {
     private final Set<Item> reportedShortages = new HashSet<>();
 
     private Optional<BuildSession> session = Optional.empty();
+    /** Pathfinder of the running build; a new one per run, so blacklisted clusters do not carry over (P3-02). */
+    private Navigator navigator = new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis);
     /** Status of the last run, kept for {@code .sf status} after it ended. */
     private Optional<BuildSession.Status> lastStatus = Optional.empty();
     private HotbarSlots hotbarSlots = HotbarSlots.parse("2-8");
@@ -237,6 +240,7 @@ public final class SchemaPrinter extends Module {
     public void onDeactivate() {
         session.map(BuildSession::status).ifPresent(status -> lastStatus = Optional.of(status));
         session = Optional.empty();
+        navigator.cancel();
         reportedShortages.clear();
         stopNextTick = false;
         guard.release();
@@ -288,7 +292,11 @@ public final class SchemaPrinter extends Module {
         rotationSpoofInRun = rotationSpoof.get();
         tickCounter = 0;
         reportedShortages.clear();
-        return Optional.of(new BuildSession(snapshot.get(), planner, printer, System::currentTimeMillis, this::onStateChange));
+        navigator.cancel();
+        navigator = new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis);
+        if (!navigator.available()) info("Baritone is missing; only clusters within reach are built (see .sf doctor).");
+        return Optional.of(new BuildSession(snapshot.get(), planner, printer, navigator, System::currentTimeMillis,
+            this::onStateChange, note -> warning("%s", note)));
     }
 
     /** Refills the budget and runs one step of the state machine (P2-01, P2-07). */

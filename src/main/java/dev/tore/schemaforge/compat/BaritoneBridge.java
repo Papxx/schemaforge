@@ -7,6 +7,7 @@ import baritone.api.pathing.goals.GoalGetToBlock;
 import baritone.api.pathing.goals.GoalNear;
 import dev.tore.schemaforge.SchemaForgeAddon;
 import dev.tore.schemaforge.core.AdditiveOnlyGuard;
+import dev.tore.schemaforge.core.Navigator;
 import net.minecraft.core.BlockPos;
 
 import java.util.function.Consumer;
@@ -39,6 +40,29 @@ public final class BaritoneBridge {
             // Boxing true/false yields the cached Boolean instances, which are the defaults' instances as well.
             settings.allowBreak.value = values.allowBreak();
             settings.allowBreakAnyway.value = values.allowBreakAnyway();
+        }
+    };
+
+    /** Pathing side of Baritone for the {@link Navigator} (P3-02); every method is a no-op without Baritone. */
+    public static final Navigator.Pathing PATHING = new Navigator.Pathing() {
+        @Override
+        public boolean isPresent() {
+            return BaritoneBridge.isPresent();
+        }
+
+        @Override
+        public void gotoNear(BlockPos pos, int radius) {
+            BaritoneBridge.gotoNear(pos, radius);
+        }
+
+        @Override
+        public boolean isPathing() {
+            return BaritoneBridge.isPathing();
+        }
+
+        @Override
+        public void stop() {
+            BaritoneBridge.stop();
         }
     };
 

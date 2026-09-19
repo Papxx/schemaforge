@@ -28,7 +28,7 @@ dev.tore.schemaforge
 │   ├── BuildSession                 Zustandsautomat eines Laufs (§5): Planen, Cluster abarbeiten, Nachprüfen, Status (P2-07)
 │   ├── Substitutes                  Setting-Zeilen „a->b,c“ → Map<Block, List<Block>> (P2-07)
 │   ├── AdditiveOnlyGuard            verbietet Baritone das Brechen während des Laufs, stellt Settings wieder her (P2-06)
-│   ├── Navigator                    Cluster-/Container-Ziele an BaritoneBridge
+│   ├── Navigator                    Cluster-/Container-Ziele an einen Pfadfinder (BaritoneBridge.PATHING), Timeout + Blacklist (P3-02)
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
 │   ├── HotbarSlots                  erlaubte Hotbar-Slots aus Setting-Text „2-8“ (P2-05)
 │   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz
@@ -177,6 +177,11 @@ public final class BaritoneBridge {
     public static boolean isPathing();
     public static void stop();
     public static final AdditiveOnlyGuard.PathfinderSettings BREAK_SETTINGS; // P2-06: allowBreak + allowBreakAnyway lesen/schreiben
+    public static final Navigator.Pathing PATHING;                   // P3-02: Pfadfinder-Seite für den Navigator
+    // P3-01: gotoNear/gotoBlock über getCustomGoalProcess().setGoalAndPath(new GoalNear(pos,radius) / new GoalGetToBlock(pos)),
+    //  isPathing über getPathingBehavior().isPathing(), stop über onLostControl() + cancelEverything() (wie Meteors
+    //  BaritonePathManager). Alle baritone-Referenzen liegen in der privaten Nested-Klasse Api, die erst nach
+    //  isPresent() geladen wird; getPrimaryBaritone() kann vor dem Welt-Beitritt null sein → Log-Warnung, kein Wurf.
     // P2-06 statt setAvoidBreaking(Set<BlockPos>) / restoreSettings(): baritone.api kennt keine positionsbezogene Break-Sperre
     //  (Settings im Jar 26.2-SNAPSHOT: nur allowBreak, allowBreakAnyway und Blocktyp-Listen). Deshalb verbietet der
     //  AdditiveOnlyGuard Brechen während des Laufs ganz; Wiederherstellen liegt im Guard.
@@ -193,6 +198,24 @@ public final class AdditiveOnlyGuard {
     public void release();                      // Stop: gemerkte Werte zurückschreiben (dieselben Objekte); ohne engage nichts
     public boolean engaged();
     // SchemaPrinter: engage in onActivate, release in onDeactivate. additiveOnly-Änderung während des Laufs greift beim nächsten Start.
+}
+
+// P3-02. Ein Ziel zur Zeit; kennt Baritone nicht (Pathing-Interface), damit der Zustandsautomat testbar bleibt.
+public final class Navigator {
+    public interface Pathing { boolean isPresent(); void gotoNear(BlockPos pos, int radius); boolean isPathing(); void stop(); }
+    public enum Progress { TRAVELING, ARRIVED, FAILED }
+    public static final int GOAL_RADIUS = 3;                         // Ziel: neben dem Cluster stehen, nicht darin
+    public static final double ARRIVE_DISTANCE = GOAL_RADIUS + 2.0;  // Abstand Augen→Ziel, ab dem „angekommen“ gilt
+    public static final long TIMEOUT_MS = 20_000;
+    public static final int MAX_ATTEMPTS = 3;                        // danach Blacklist
+    public Navigator(Pathing pathing, LongSupplier clockMs);
+    public boolean available();                                      // false ohne Baritone → Cluster werden von der Stelle aus versucht
+    public boolean start(BlockPos target);                           // false ohne Pfadfinder oder wenn geblacklistet
+    public Progress tick(PlayerView player);
+    // FAILED: Timeout, oder nach 1,5 s Anlaufzeit meldet der Pfadfinder „läuft nicht“ (kein Pfad gefunden / anderer
+    //  Prozess hat übernommen). FAILED zählt einen Versuch und stoppt den Pfadfinder; ab MAX_ATTEMPTS Blacklist.
+    public void cancel();                                            // Pause/Ankunft/Laufende: Pfadfinder freigeben, kein Versuch
+    public boolean blacklisted(BlockPos target); public int attempts(BlockPos target); public BlockPos target();
 }
 
 public final class ActionBudget {
@@ -353,8 +376,8 @@ Jeder Zustand: onEnter(), tick(), onExit(). Zustandswechsel loggen (Debug-Settin
 ```
 
 P2-07: Der Automat liegt testbar in `core/BuildSession`; `SchemaPrinter` hält Settings, baut Views/Actions und reicht Ticks durch.
-onEnter/tick/onExit sind Zweige eines `switch` je Zustand, nicht eigene Klassen. TRAVELING (P3-02), RESTOCKING (P4-04) und
-automatische Pausen (P3-03) existieren als Zustände, werden aber noch nicht betreten.
+onEnter/tick/onExit sind Zweige eines `switch` je Zustand, nicht eigene Klassen. RESTOCKING (P4-04) und automatische
+Pausen (P3-03) existieren als Zustände, werden aber noch nicht betreten; TRAVELING seit P3-02.
 
 ```java
 public final class BuildSession {
@@ -362,17 +385,24 @@ public final class BuildSession {
     public static final int MAX_ROUNDS = 3;                          // BUILDING→VERIFYING-Runden, danach DONE mit Rest
     public record Status(State state, String placement, int round, int clusterIndex, int clusterCount,   // clusterIndex 1-basiert, 0 vor dem ersten
                          int placed, double blocksPerMinute, int mismatched, int remaining) {}
-    public BuildSession(SchematicSnapshot snap, WorkPlanner planner, Printer printer, LongSupplier clockMs,
-                        BiConsumer<State, State> onStateChange);
+    public BuildSession(SchematicSnapshot snap, WorkPlanner planner, Printer printer, Navigator navigator,
+                        LongSupplier clockMs, BiConsumer<State, State> onStateChange, Consumer<String> notes);
+                                                                     // P3-02: navigator + notes (Chat-Einzeiler, z. B. „Cluster nicht erreichbar“)
     public void start();                                             // IDLE → PLANNING
     public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
-    public boolean pause();                                          // aus PLANNING/BUILDING/VERIFYING → PAUSED; false sonst
+    public boolean pause();                                          // aus jedem laufenden Zustand → PAUSED; false sonst
+                                                                     // P3-02: aus TRAVELING zusätzlich navigator.cancel(), resume läuft den Cluster neu an
     public boolean resume();                                         // PAUSED → Zustand davor; false sonst
     public State state();
     public Status status();
     // PLANNING (1 Tick): planner.plan(snap, world, BlockPos.containing(player.eyePos())) → BUILDING
     // BUILDING: kein Cluster offen oder printer.clusterDone() → nächster Cluster mit PLACE-Task (printer.startCluster);
-    //   Cluster ohne PLACE-Task (nur SKIP/BREAK/FLUID) werden übersprungen; keiner mehr → VERIFYING. Sonst printer.tick.
+    //   Cluster ohne PLACE-Task (nur SKIP/BREAK/FLUID) und geblacklistete werden übersprungen; keiner mehr → VERIFYING.
+    //   Sonst printer.tick.
+    // P3-02: kein PLACE-Task des Clusters innerhalb player.reach() und navigator.start(center) → TRAVELING.
+    // TRAVELING: navigator.tick. ARRIVED → printer.startCluster, BUILDING. FAILED → Meldung über notes und Cluster ans
+    //   Ende der Liste; beim dritten Fehlversuch blacklistet der Navigator ihn, dann Meldung „cannot be reached“ und
+    //   kein weiterer Anlauf. Ohne Baritone wird nie TRAVELING betreten.
     // VERIFYING (1 Tick): neu planen. remaining = PLACE-Tasks, mismatched = SKIP MISMATCH_ADDITIVE_ONLY.
     //   remaining == 0, in dieser Runde nichts gesendet oder round == MAX_ROUNDS → DONE; sonst round+1, neue Cluster, BUILDING.
     //   (Weitere Runden fangen Blöcke, deren Träger erst in einem späteren Cluster entstand.)
@@ -394,7 +424,9 @@ public final class Substitutes {
   `blocksPerTick`, `tickInterval`, `allowedHotbarSlots` (ungültig → letzter gültiger Wert) und `rotationSpoof` sofort.
 - Meteor ruft `onActivate` beim Welt-Beitritt erneut für aktive Module auf (auch nach Neustart aus der Config). Ein Lauf
   startet nur aus `toggle()` (GUI, Keybind, `.sf start`); sonst wird das Modul im nächsten Tick ausgeschaltet.
-- `onDeactivate`: Session verwerfen (Status bleibt für `.sf status` als „stopped“), `guard.release()`.
+- `onDeactivate`: Session verwerfen (Status bleibt für `.sf status` als „stopped“), `guard.release()`, `navigator.cancel()`.
+- P3-02: je Lauf ein neuer `Navigator` (Blacklist gilt nur für den Lauf); ohne Baritone eine Chat-Zeile, dass nur
+  Cluster in Reichweite gebaut werden.
 - Budget: Limit `blocksPerTick` in Ticks mit `tick % tickInterval == 0`, sonst 0.
 - DONE → Chat-Zusammenfassung, Modul aus. Fehlbestand → Chat-Warnung einmal je Item pro Lauf.
 
@@ -436,6 +468,7 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 
 ```
 .sf start [placement]   .sf pause   .sf resume   .sf stop
+.sf debug goto <x> <y> <z>   .sf debug stopgoto      (P3-01, intern)
 .sf status              .sf preview [placement]
 .sf verify              .sf materials
 .sf restock [item]      .sf scan [radius]      .sf containers

@@ -195,10 +195,31 @@ Neu `commands/DebugCommands`: `.sf debug goto <x> <y> <z>` und `.sf debug stopgo
   Methoden werfen nicht, `isPathing()` false.
 - AK1 **offen**: In-game-Test → TESTLOG.
 
-### P3-02 · `Navigator` + TRAVELING-State `todo`
+### P3-02 · `Navigator` + TRAVELING-State `done`
 Cluster ohne erreichbare Tasks → `gotoNear(center, 3)`; Timeout 20 s → Cluster ans Ende der Liste, nach 3 Fehlversuchen blacklisten und melden.
 - AK1 Manuell: 20×20×3-Plattform → Printer baut, läuft, baut; kein Cluster wird > 3× angelaufen
 - AK2 Manuell: unerreichbarer Cluster (eingemauert) → Blacklist-Meldung, Bau geht weiter
+
+Stand 2026-09-19: `core/Navigator` hält ein Ziel, kennt Baritone nicht (Interface `Navigator.Pathing`, produktiv
+`BaritoneBridge.PATHING`), so bleibt der Zustandsautomat ohne Minecraft-Runtime testbar. `start(center)` →
+`gotoNear(center, GOAL_RADIUS=3)`; `tick(player)` liefert ARRIVED (Augen ≤ `ARRIVE_DISTANCE` = 5 vom Zielmittelpunkt,
+Pfadfinder wird freigegeben), FAILED (Timeout 20 s **oder** nach 1,5 s Anlaufzeit meldet der Pfadfinder „läuft nicht“ –
+sonst wäre jeder Cluster erst nach 20 s als unerreichbar erkannt) oder TRAVELING. FAILED zählt einen Versuch, ab
+`MAX_ATTEMPTS` = 3 Blacklist (gilt für den Lauf, Schlüssel ist die Cluster-Mitte, übersteht also das Neuplanen).
+`BuildSession`: neuer Zweig TRAVELING; beim Clusterwechsel wird geprüft, ob ein PLACE-Task des Clusters innerhalb
+`player.reach()` liegt – wenn nicht, wird er angelaufen. FAILED → Meldung + Cluster ans Ende der Liste; beim dritten Mal
+Blacklist-Meldung und der Cluster wird nicht mehr angelaufen. Ohne Baritone wird TRAVELING nie betreten (Verhalten wie
+vor P3-02) und der Lauf meldet das einmal im Chat. Signatur geändert (ARCHITECTURE.md §4/§5 vorher angepasst):
+`BuildSession(..., Navigator navigator, ..., Consumer<String> notes)`; `pause()` gilt jetzt für jeden laufenden Zustand
+und gibt in TRAVELING den Pfadfinder frei, `resume()` läuft denselben Cluster neu an. `SchemaPrinter` baut je Lauf einen
+neuen Navigator und ruft `cancel()` in `onDeactivate`. Build + 147 Tests grün.
+- `NavigatorTest` (5): Ankunft gibt den Pfad frei und zählt keinen Versuch, „nicht am Laufen“ nach der Anlaufzeit,
+  Timeout-Grenze exakt, dritter Fehlversuch blacklistet (danach `start` false, genau 3 Ziele beim Pfadfinder),
+  ohne Pfadfinder passiert nichts.
+- `BuildSessionTest` +4: Cluster außer Reichweite wird angelaufen (Ziel = Cluster-Mitte, Radius 3) und nach der Ankunft
+  gebaut; eingemauerter Cluster → 3 Anläufe, Blacklist-Meldung, erreichbarer Teil bleibt gebaut, Lauf endet in DONE;
+  ohne Pfadfinder nie TRAVELING; Pause während der Fahrt gibt den Pfad frei und zählt keinen Fehlversuch.
+- AK1/AK2 **offen**: beides sind In-game-Tests (Baritone läuft im Unit-Test nicht) → TESTLOG.
 
 ### P3-03 · Sicherheitsstopps → PAUSED `todo`
 Schaden, Hunger < `minFood`, Spieler im Radius, Chunk nicht geladen, Inventar leer für alle offenen Tasks.

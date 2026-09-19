@@ -35,8 +35,10 @@ class BuildSessionTest {
     private static BlockState stone;
     /** Two rows of five that fall into two clusters of edge length 5. */
     private static final int ROW = 5;
+    /** Far enough from the player that the printer cannot reach that row (P3-02). */
+    private static final int FAR_ROW_Z = 40;
     /** Eyes between the two rows; every target of both rows is within 4.5. */
-    private static final FakePlayer PLAYER = new FakePlayer(new Vec3(2.5, 65.62, 3.0));
+    private static final Vec3 BETWEEN_ROWS = new Vec3(2.5, 65.62, 3.0);
 
     @BeforeAll
     static void bootstrapRegistries() {
@@ -177,7 +179,89 @@ class BuildSessionTest {
         assertEquals(0.0, s.session.status().blocksPerMinute());
     }
 
+    @Test
+    void clusterOutOfReachIsWalkedToFirst() {
+        Setup s = new Setup(nearAndFarRow());
+        s.msPerTick = 100;
+        s.session.start();
+        s.tick();
+
+        // The near row is built from where we stand, then the far one is walked to.
+        s.tickUntil(BuildSession.State.TRAVELING, 60);
+        assertEquals(ROW, s.actions.placed.size(), "near row built before travelling");
+        assertEquals(List.of(new BlockPos(2, 64, FAR_ROW_Z)), s.pathing.goals, "walks to the far cluster centre");
+        assertEquals(Navigator.GOAL_RADIUS, s.pathing.lastRadius);
+
+        s.tick();
+        assertEquals(BuildSession.State.TRAVELING, s.session.state(), "still walking while far away");
+        s.player.eyePos = new Vec3(2.5, 65.62, FAR_ROW_Z - 3.0);
+        s.tick();
+
+        assertEquals(BuildSession.State.BUILDING, s.session.state(), "arriving hands over to the printer");
+        s.tickUntilDone();
+        assertEquals(2 * ROW, s.actions.placed.size(), "both rows built");
+        assertEquals(List.of(), s.notes);
+    }
+
+    @Test
+    void unreachableClusterIsBlacklistedAfterThreeTriesAndTheBuildGoesOn() {
+        Setup s = new Setup(nearAndFarRow());
+        s.msPerTick = 100;
+        // The pathfinder finds no path to the walled-in cluster and never starts walking.
+        s.pathing.pathFound = false;
+        s.session.start();
+        s.tickUntilDone();
+
+        BlockPos farCentre = new BlockPos(2, 64, FAR_ROW_Z);
+        assertEquals(Navigator.MAX_ATTEMPTS, s.pathing.goals.size(), "no cluster is approached more than three times");
+        assertTrue(s.navigator.blacklisted(farCentre));
+        assertEquals(ROW, s.actions.placed.size(), "the reachable row is still built");
+        assertEquals(Navigator.MAX_ATTEMPTS, s.notes.size(), "one message per failed try");
+        assertTrue(s.notes.getLast().contains("cannot be reached"), s.notes.getLast());
+        assertEquals(ROW, s.session.status().remaining(), "the unreachable row stays open");
+    }
+
+    @Test
+    void withoutAPathfinderEveryClusterIsTriedFromWhereWeStand() {
+        Setup s = new Setup(nearAndFarRow());
+        s.pathing.present = false;
+        s.session.start();
+        s.tickUntilDone();
+
+        assertFalse(s.states.contains(BuildSession.State.TRAVELING), "nothing to walk with");
+        assertEquals(List.of(), s.pathing.goals);
+        assertEquals(ROW, s.actions.placed.size(), "only what is within reach");
+    }
+
+    @Test
+    void pausingWhileTravellingHandsThePathBackAndResumesTheSameCluster() {
+        Setup s = new Setup(nearAndFarRow());
+        s.msPerTick = 100;
+        s.session.start();
+        s.tick();
+        s.tickUntil(BuildSession.State.TRAVELING, 60);
+
+        assertTrue(s.session.pause());
+        assertEquals(1, s.pathing.stops, "the pathfinder is free while paused");
+        s.tick();
+        assertEquals(BuildSession.State.PAUSED, s.session.state(), "a paused session does not walk");
+
+        assertTrue(s.session.resume());
+        s.tick();
+        assertEquals(BuildSession.State.TRAVELING, s.session.state());
+        assertEquals(2, s.pathing.goals.size(), "the same cluster is walked to again");
+        assertEquals(new BlockPos(2, 64, FAR_ROW_Z), s.pathing.goals.getLast());
+        assertEquals(0, s.navigator.attempts(s.pathing.goals.getLast()), "a pause is not a failed try");
+    }
+
     // --- helpers ------------------------------------------------------------------------------------
+
+    /** One row within reach and one 40 blocks away, so the second cluster has to be walked to. */
+    private static Map<BlockPos, BlockState> nearAndFarRow() {
+        Map<BlockPos, BlockState> targets = new HashMap<>(rows(1));
+        for (int i = 0; i < ROW; i++) targets.put(new BlockPos(i, 64, FAR_ROW_Z), stone);
+        return targets;
+    }
 
     /** {@code rows} rows of five stone targets at y=64 over a stone floor, 6 blocks apart so each is its own cluster. */
     private static Map<BlockPos, BlockState> rows(int rows) {
@@ -196,6 +280,10 @@ class BuildSessionTest {
         final List<BuildSession.State> states = new ArrayList<>();
         final AtomicLong clock = new AtomicLong(1_000_000);
         final ActionBudget budget = new ActionBudget(() -> 1);
+        final NavigatorTest.FakePathing pathing = new NavigatorTest.FakePathing();
+        final FakePlayer player = new FakePlayer(BETWEEN_ROWS);
+        final List<String> notes = new ArrayList<>();
+        final Navigator navigator;
         final BuildSession session;
 
         Setup(Map<BlockPos, BlockState> targets) {
@@ -212,12 +300,24 @@ class BuildSessionTest {
             });
             Printer printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, materials, budget,
                 PlacementLog.inMemory());
-            session = new BuildSession(snapshot(targets), planner, printer, clock::get, (_, to) -> states.add(to));
+            navigator = new Navigator(pathing, clock::get);
+            session = new BuildSession(snapshot(targets), planner, printer, navigator, clock::get,
+                (_, to) -> states.add(to), notes::add);
         }
+
+        /** Milliseconds the clock advances per tick; travel timeouts need a clock that moves. */
+        int msPerTick;
 
         void tick() {
             budget.resetTick();
-            session.tick(world, PLAYER, inventory, actions);
+            clock.addAndGet(msPerTick);
+            session.tick(world, player, inventory, actions);
+        }
+
+        /** Ticks at most {@code max} times or until the session is in {@code until}. */
+        void tickUntil(BuildSession.State until, int max) {
+            for (int i = 0; i < max && session.state() != until; i++) tick();
+            assertSame(until, session.state(), "reached " + until + " within " + max + " ticks");
         }
 
         /** Ticks until DONE; fails loudly instead of hanging if the machine ever stalls. */
@@ -261,7 +361,18 @@ class BuildSessionTest {
         }
     }
 
-    private record FakePlayer(Vec3 eyePos) implements PlayerView {
+    private static final class FakePlayer implements PlayerView {
+        private Vec3 eyePos;
+
+        FakePlayer(Vec3 eyePos) {
+            this.eyePos = eyePos;
+        }
+
+        @Override
+        public Vec3 eyePos() {
+            return eyePos;
+        }
+
         @Override
         public float yaw() {
             return 0;
