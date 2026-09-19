@@ -29,6 +29,7 @@ dev.tore.schemaforge
 │   ├── Substitutes                  Setting-Zeilen „a->b,c“ → Map<Block, List<Block>> (P2-07)
 │   ├── AdditiveOnlyGuard            verbietet Baritone das Brechen während des Laufs, stellt Settings wieder her (P2-06)
 │   ├── Navigator                    Cluster-/Container-Ziele an einen Pfadfinder (BaritoneBridge.PATHING), Timeout + Blacklist (P3-02)
+│   ├── SafetyMonitor                Gründe für eine automatische Pause (P3-03)
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
 │   ├── HotbarSlots                  erlaubte Hotbar-Slots aus Setting-Text „2-8“ (P2-05)
 │   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz
@@ -129,6 +130,11 @@ public interface InventoryView {
 public interface PlayerView {
     Vec3 eyePos(); float yaw(); float pitch(); double reach();
     boolean hasLineOfSight(Vec3 target);
+}
+// P3-03: Zustand, den die Sicherheitsstopps beobachten.
+public interface SafetyView {
+    float health(); int food();
+    OptionalDouble nearestOtherPlayer();                 // Abstand zum nächsten anderen Spieler, leer wenn keiner da
 }
 // P2-03: einziger Weg, auf dem core/ Pakete auslöst. Der Aufrufer hat vorher ActionBudget.tryConsume() gefragt.
 public interface PrintActions {
@@ -305,6 +311,7 @@ public final class Printer {
     public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
     public boolean clusterDone();                                    // kein offener PLACE-Task mit Versuchen < MAX_ATTEMPTS
     public int placedCount();                                        // gesendete Platzierungen in diesem Besuch
+    public boolean outOfMaterials(InventoryView inv);                // P3-03: Cluster braucht Items, keines davon im Inventar
     // Durchlauf: zu Beginn refresh(), dann Tasks in Reihenfolge ab Cursor, höchstens ein Durchlauf pro Tick.
     //  Nur PLACE; Position nicht mehr ersetzbar → weiter ohne Versuch (nächster refresh entscheidet).
     //  Jeder Blick auf einen Task zählt einen Versuch: NeedsSupport/Unsupported, Plan außer Reichweite
@@ -319,6 +326,20 @@ public final class Printer {
 public record HotbarSlots(Set<Integer> indices) {                   // aufsteigend, nicht leer
     public static HotbarSlots parse(String text);                    // IllegalArgumentException bei leer/ungültig/außerhalb 1–9
     public boolean allows(int index);
+}
+
+// P3-03. Entscheidet nur, pausiert nichts selbst; Settings werden bei jedem check() gelesen.
+public final class SafetyMonitor {
+    public record Config(boolean pauseOnDamage, int minFood, int pausePlayerRadius) { public static Config defaults(); }
+    public enum Reason { DAMAGE, FOOD, PLAYER_NEARBY, CHUNK_UNLOADED, NO_MATERIALS }
+    public record Trigger(Reason reason, String message, boolean autoResume) {}
+    public SafetyMonitor(Supplier<Config> config);
+    public Optional<Trigger> check(SafetyView safety, boolean chunkLoaded, boolean outOfMaterials);
+    public boolean cleared(Trigger t, SafetyView safety, boolean chunkLoaded, boolean outOfMaterials);
+    // Reihenfolge: DAMAGE (Leben unter dem Wert des letzten Ticks; nur bei pauseOnDamage) → FOOD → PLAYER_NEARBY →
+    //  CHUNK_UNLOADED → NO_MATERIALS. autoResume=false nur bei DAMAGE (weiter mit .sf resume), sonst automatisch.
+    //  Während der Pause wird nicht geprüft, darum bleibt das Leben des Pausen-Ticks der Vergleichswert und ein
+    //  .sf resume nach Schaden pausiert nicht sofort wieder.
 }
 
 // P2-05. Bedarf eines Clusters, Hotbar-Wahl nur in erlaubten Slots, Fehlbestand-Event. Sendet selbst nichts.
@@ -376,8 +397,8 @@ Jeder Zustand: onEnter(), tick(), onExit(). Zustandswechsel loggen (Debug-Settin
 ```
 
 P2-07: Der Automat liegt testbar in `core/BuildSession`; `SchemaPrinter` hält Settings, baut Views/Actions und reicht Ticks durch.
-onEnter/tick/onExit sind Zweige eines `switch` je Zustand, nicht eigene Klassen. RESTOCKING (P4-04) und automatische
-Pausen (P3-03) existieren als Zustände, werden aber noch nicht betreten; TRAVELING seit P3-02.
+onEnter/tick/onExit sind Zweige eines `switch` je Zustand, nicht eigene Klassen. RESTOCKING (P4-04) wird noch nicht
+betreten; TRAVELING seit P3-02, automatische Pausen seit P3-03.
 
 ```java
 public final class BuildSession {
@@ -386,8 +407,12 @@ public final class BuildSession {
     public record Status(State state, String placement, int round, int clusterIndex, int clusterCount,   // clusterIndex 1-basiert, 0 vor dem ersten
                          int placed, double blocksPerMinute, int mismatched, int remaining) {}
     public BuildSession(SchematicSnapshot snap, WorkPlanner planner, Printer printer, Navigator navigator,
-                        LongSupplier clockMs, BiConsumer<State, State> onStateChange, Consumer<String> notes);
+                        SafetyMonitor safety, LongSupplier clockMs, BiConsumer<State, State> onStateChange,
+                        Consumer<String> notes);
                                                                      // P3-02: navigator + notes (Chat-Einzeiler, z. B. „Cluster nicht erreichbar“)
+                                                                     // P3-03: safety
+    public void tick(WorldView world, PlayerView player, InventoryView inv, SafetyView safety, PrintActions actions);
+    public Optional<SafetyMonitor.Trigger> safetyPause();            // P3-03: Grund der automatischen Pause, sonst leer
     public void start();                                             // IDLE → PLANNING
     public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
     public boolean pause();                                          // aus jedem laufenden Zustand → PAUSED; false sonst
@@ -395,6 +420,9 @@ public final class BuildSession {
     public boolean resume();                                         // PAUSED → Zustand davor; false sonst
     public State state();
     public Status status();
+    // P3-03: vor jedem Schritt eines laufenden Laufs safety.check(view, Chunk des aktuellen Clusters geladen,
+    //   printer.outOfMaterials(inv)) → Treffer: pause() + Meldung über notes. In PAUSED wird nur geprüft, ob der Grund
+    //   weg ist (autoResume) und dann fortgesetzt; .sf resume löscht den Grund ebenfalls.
     // PLANNING (1 Tick): planner.plan(snap, world, BlockPos.containing(player.eyePos())) → BUILDING
     // BUILDING: kein Cluster offen oder printer.clusterDone() → nächster Cluster mit PLACE-Task (printer.startCluster);
     //   Cluster ohne PLACE-Task (nur SKIP/BREAK/FLUID) und geblacklistete werden übersprungen; keiner mehr → VERIFYING.
@@ -461,7 +489,7 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 | Placement | clickAdjacentOnly | bool | true |
 | Placement | rotationSpoof | bool | false |
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
-| Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P2-07: nicht angelegt, kommt mit P3-03
+| Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P3-03; Radius 0 schaltet die Spielerprüfung ab
 | Debug | logStateChanges / renderClusters | bool / bool | false / true |  ← P2-07: nur logStateChanges; renderClusters ohne Ticket (Backlog)
 
 ## 8. Commands

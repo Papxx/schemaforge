@@ -6,6 +6,7 @@ import dev.tore.schemaforge.compat.LitematicaAdapter;
 import dev.tore.schemaforge.compat.McInventoryView;
 import dev.tore.schemaforge.compat.McPlayerView;
 import dev.tore.schemaforge.compat.McPrintActions;
+import dev.tore.schemaforge.compat.McSafetyView;
 import dev.tore.schemaforge.compat.McWorldView;
 import dev.tore.schemaforge.core.ActionBudget;
 import dev.tore.schemaforge.core.AdditiveOnlyGuard;
@@ -16,6 +17,7 @@ import dev.tore.schemaforge.core.Navigator;
 import dev.tore.schemaforge.core.PlacementLog;
 import dev.tore.schemaforge.core.PlacementSolver;
 import dev.tore.schemaforge.core.PlanConfig;
+import dev.tore.schemaforge.core.SafetyMonitor;
 import dev.tore.schemaforge.core.Printer;
 import dev.tore.schemaforge.core.SchematicSnapshot;
 import dev.tore.schemaforge.core.SolverConfig;
@@ -59,6 +61,7 @@ public final class SchemaPrinter extends Module {
     private final SettingGroup sgOrder = settings.createGroup("Order");
     private final SettingGroup sgFilters = settings.createGroup("Filters");
     private final SettingGroup sgPlacement = settings.createGroup("Placement");
+    private final SettingGroup sgSafety = settings.createGroup("Safety");
     private final SettingGroup sgDebug = settings.createGroup("Debug");
 
     private final Setting<String> placement = sgGeneral.add(new ProvidedStringSetting.Builder()
@@ -174,6 +177,28 @@ public final class SchemaPrinter extends Module {
         .name("allowed-hotbar-slots")
         .description("Hotbar slots the printer may use, as on the keyboard: 2-8 or 1,3,5-7")
         .defaultValue("2-8")
+        .build());
+
+    private final Setting<Boolean> pauseOnDamage = sgSafety.add(new BoolSetting.Builder()
+        .name("pause-on-damage")
+        .description("Pause the build when the player takes damage; continue with .sf resume.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Integer> minFood = sgSafety.add(new IntSetting.Builder()
+        .name("min-food")
+        .description("Pause below this food level; the build continues on its own after eating.")
+        .defaultValue(6)
+        .range(0, 20)
+        .sliderRange(0, 20)
+        .build());
+
+    private final Setting<Integer> pausePlayerRadius = sgSafety.add(new IntSetting.Builder()
+        .name("pause-player-radius")
+        .description("Pause while another player is this close; 0 turns the check off.")
+        .defaultValue(16)
+        .range(0, 128)
+        .sliderRange(0, 64)
         .build());
 
     private final Setting<Boolean> logStateChanges = sgDebug.add(new BoolSetting.Builder()
@@ -295,8 +320,9 @@ public final class SchemaPrinter extends Module {
         navigator.cancel();
         navigator = new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis);
         if (!navigator.available()) info("Baritone is missing; only clusters within reach are built (see .sf doctor).");
-        return Optional.of(new BuildSession(snapshot.get(), planner, printer, navigator, System::currentTimeMillis,
-            this::onStateChange, note -> warning("%s", note)));
+        SafetyMonitor safety = new SafetyMonitor(this::safetyConfig);
+        return Optional.of(new BuildSession(snapshot.get(), planner, printer, navigator, safety,
+            System::currentTimeMillis, this::onStateChange, note -> warning("%s", note)));
     }
 
     /** Refills the budget and runs one step of the state machine (P2-01, P2-07). */
@@ -314,7 +340,8 @@ public final class SchemaPrinter extends Module {
 
         BuildSession run = session.get();
         run.tick(new McWorldView(mc.level), new McPlayerView(mc.player, reach.get()),
-            new McInventoryView(mc.player), new McPrintActions(mc, rotationSpoofInRun));
+            new McInventoryView(mc.player), new McSafetyView(mc.player, mc.level),
+            new McPrintActions(mc, rotationSpoofInRun));
         if (run.state() == BuildSession.State.DONE) finish(run);
     }
 
@@ -353,6 +380,11 @@ public final class SchemaPrinter extends Module {
     private void onStateChange(BuildSession.State from, BuildSession.State to) {
         SchemaForgeAddon.LOG.info("Build state {} -> {}", from, to);
         if (logStateChanges.get()) info("%s -> %s", from, to);
+    }
+
+    /** Read on every safety check, so a changed setting takes effect at once (P3-03). */
+    private SafetyMonitor.Config safetyConfig() {
+        return new SafetyMonitor.Config(pauseOnDamage.get(), minFood.get(), pausePlayerRadius.get());
     }
 
     /** Full budget only on acting ticks; the interval setting is read every tick. */

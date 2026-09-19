@@ -6,6 +6,7 @@ import dev.tore.schemaforge.core.view.PlayerView;
 import dev.tore.schemaforge.core.view.PrintActions;
 import dev.tore.schemaforge.core.view.WorldView;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
@@ -109,6 +110,16 @@ public final class Printer {
     /** Placements sent during this cluster visit. */
     public int placedCount() {
         return placed;
+    }
+
+    /**
+     * True if the current cluster needs items and the inventory holds none of them (P3-03).
+     * The demand is the one from the start of the visit, so it also counts blocks already placed - good enough to
+     * tell "nothing left to work with" from "one item type is missing".
+     */
+    public boolean outOfMaterials(InventoryView inv) {
+        Map<Item, Integer> demand = materials.demand();
+        return !demand.isEmpty() && demand.keySet().stream().allMatch(item -> inv.count(item) == 0);
     }
 
     /** A plan the player can send from where they stand, or empty if the task cannot be placed right now. */

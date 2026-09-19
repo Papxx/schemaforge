@@ -254,6 +254,68 @@ class BuildSessionTest {
         assertEquals(0, s.navigator.attempts(s.pathing.goals.getLast()), "a pause is not a failed try");
     }
 
+    @Test
+    void damagePausesTheBuildUntilResumedByHand() {
+        Setup s = new Setup(rows(1));
+        s.session.start();
+        s.tick();
+        s.tick();
+        int placedBeforeDamage = s.actions.placed.size();
+
+        s.safety.health = 12;
+        s.tick();
+        assertEquals(BuildSession.State.PAUSED, s.session.state());
+        assertEquals(SafetyMonitor.Reason.DAMAGE, s.session.safetyPause().orElseThrow().reason());
+        assertTrue(s.notes.getLast().contains(".sf resume"), s.notes.getLast());
+
+        for (int i = 0; i < 10; i++) s.tick();
+        assertEquals(BuildSession.State.PAUSED, s.session.state(), "damage never continues on its own");
+        assertEquals(placedBeforeDamage, s.actions.placed.size(), "nothing is placed while paused");
+
+        assertTrue(s.session.resume());
+        assertTrue(s.session.safetyPause().isEmpty());
+        s.tickUntilDone();
+        assertEquals(ROW, s.actions.placed.size());
+    }
+
+    @Test
+    void aPlayerNearbyPausesAndTheBuildContinuesOnItsOwn() {
+        Setup s = new Setup(rows(1));
+        s.session.start();
+        s.tick();
+
+        s.safety.nearest = java.util.OptionalDouble.of(5);
+        s.tick();
+        assertEquals(BuildSession.State.PAUSED, s.session.state());
+        assertEquals(SafetyMonitor.Reason.PLAYER_NEARBY, s.session.safetyPause().orElseThrow().reason());
+
+        s.safety.nearest = java.util.OptionalDouble.of(40);
+        s.tick();
+        assertEquals(BuildSession.State.BUILDING, s.session.state(), "continues once they left");
+        assertTrue(s.session.safetyPause().isEmpty());
+        assertTrue(s.notes.getLast().contains("PLAYER_NEARBY"), s.notes.getLast());
+        s.tickUntilDone();
+        assertEquals(ROW, s.actions.placed.size());
+    }
+
+    @Test
+    void anEmptyInventoryPausesUntilItemsAreBack() {
+        Setup s = new Setup(rows(1));
+        s.inventory.put(3, Items.AIR, 0);
+        s.session.start();
+        // The demand is known once the first cluster starts, so the stop fires on the tick after that.
+        s.tickUntil(BuildSession.State.PAUSED, 5);
+
+        assertEquals(SafetyMonitor.Reason.NO_MATERIALS, s.session.safetyPause().orElseThrow().reason());
+        assertEquals(List.of(), s.actions.placed);
+
+        s.inventory.put(3, Items.STONE, 64);
+        s.tick();
+        assertEquals(BuildSession.State.BUILDING, s.session.state());
+        s.tickUntilDone();
+        assertEquals(ROW, s.actions.placed.size());
+    }
+
     // --- helpers ------------------------------------------------------------------------------------
 
     /** One row within reach and one 40 blocks away, so the second cluster has to be walked to. */
@@ -284,6 +346,8 @@ class BuildSessionTest {
         final FakePlayer player = new FakePlayer(BETWEEN_ROWS);
         final List<String> notes = new ArrayList<>();
         final Navigator navigator;
+        final SafetyMonitorTest.FakeSafety safety = new SafetyMonitorTest.FakeSafety();
+        SafetyMonitor.Config safetyConfig = SafetyMonitor.Config.defaults();
         final BuildSession session;
 
         Setup(Map<BlockPos, BlockState> targets) {
@@ -301,8 +365,8 @@ class BuildSessionTest {
             Printer printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, materials, budget,
                 PlacementLog.inMemory());
             navigator = new Navigator(pathing, clock::get);
-            session = new BuildSession(snapshot(targets), planner, printer, navigator, clock::get,
-                (_, to) -> states.add(to), notes::add);
+            session = new BuildSession(snapshot(targets), planner, printer, navigator,
+                new SafetyMonitor(() -> safetyConfig), clock::get, (_, to) -> states.add(to), notes::add);
         }
 
         /** Milliseconds the clock advances per tick; travel timeouts need a clock that moves. */
@@ -311,7 +375,7 @@ class BuildSessionTest {
         void tick() {
             budget.resetTick();
             clock.addAndGet(msPerTick);
-            session.tick(world, player, inventory, actions);
+            session.tick(world, player, inventory, safety, actions);
         }
 
         /** Ticks at most {@code max} times or until the session is in {@code until}. */

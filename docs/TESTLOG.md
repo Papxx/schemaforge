@@ -21,3 +21,6 @@
 | 2026-09-17 | P2-05 | OK (Unit-Tests) | AK1/AK2 sind Unit-Test-AKs: `MaterialManagerTest` 8, `PrinterTest` +2, alle grün. In-game-Prüfung des Hotbar-Swaps mit P2-07 → Backlog |
 | 2026-09-17 | P2-06 | NICHT GETESTET (in-game) | Nur Unit-Tests (`AdditiveOnlyGuardTest` 5, `PrinterTest` +1, `SchemaPrinterTest` +1), alle grün. AK1/AK2 in-game erst mit P2-07 → Backlog |
 | 2026-09-17 | P2-07 | TEILWEISE (Unit-Tests) | AK2 per `StatusReportTest` erfüllt; `BuildSessionTest` 7, `SubstitutesTest` 3, `SchemaPrinterTest` +1, gesamt 134 grün. AK1 (kompletter Durchlauf in-game, Verifier 0 Fehler) steht aus → Backlog |
+| 2026-09-19 | P3-01 | NICHT GETESTET (in-game) | Nur Unit-Tests (`BaritoneBridgeTest` 3, AK2 erfüllt: ohne Baritone wirft keine Methode). AK1 (`.sf debug goto x y z` läuft zum Ziel) steht aus → Backlog |
+| 2026-09-19 | P3-02 | NICHT GETESTET (in-game) | Nur Unit-Tests (`NavigatorTest` 5, `BuildSessionTest` +4), 147 grün. AK1 (Plattform: bauen/laufen/bauen, kein Cluster > 3×) und AK2 (eingemauerter Cluster → Blacklist) sind In-game-AKs → Backlog |
+| 2026-09-19 | P3-03 | NICHT GETESTET (in-game) | Nur Unit-Tests (`SafetyMonitorTest` 7, `BuildSessionTest` +3), 157 grün. AK1 (je Bedingung Pause + Chat-Grund, automatisch bzw. `.sf resume`) ist ein In-game-AK → Backlog |

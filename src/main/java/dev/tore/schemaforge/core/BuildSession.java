@@ -3,12 +3,14 @@ package dev.tore.schemaforge.core;
 import dev.tore.schemaforge.core.view.InventoryView;
 import dev.tore.schemaforge.core.view.PlayerView;
 import dev.tore.schemaforge.core.view.PrintActions;
+import dev.tore.schemaforge.core.view.SafetyView;
 import dev.tore.schemaforge.core.view.WorldView;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
@@ -39,6 +41,7 @@ public final class BuildSession {
     private final WorkPlanner planner;
     private final Printer printer;
     private final Navigator navigator;
+    private final SafetyMonitor safety;
     private final LongSupplier clockMs;
     private final BiConsumer<State, State> onStateChange;
     private final Consumer<String> notes;
@@ -57,18 +60,23 @@ public final class BuildSession {
     private int remaining;
     private long activeMs;
     private long activeSince;
+    /** The safety stop that paused the build, empty after a manual pause or while running (P3-03). */
+    private Optional<SafetyMonitor.Trigger> safetyPause = Optional.empty();
 
     /**
      * @param navigator walks to clusters that are out of reach (P3-02); without a pathfinder every cluster is worked
      *                  on from where the player stands
+     * @param safety    pauses the build on damage, hunger, a player nearby and the like (P3-03)
      * @param notes     user-facing one-liners, e.g. about a cluster that cannot be reached
      */
     public BuildSession(SchematicSnapshot snap, WorkPlanner planner, Printer printer, Navigator navigator,
-                        LongSupplier clockMs, BiConsumer<State, State> onStateChange, Consumer<String> notes) {
+                        SafetyMonitor safety, LongSupplier clockMs, BiConsumer<State, State> onStateChange,
+                        Consumer<String> notes) {
         this.snap = snap;
         this.planner = planner;
         this.printer = printer;
         this.navigator = navigator;
+        this.safety = safety;
         this.clockMs = clockMs;
         this.onStateChange = onStateChange;
         this.notes = notes;
@@ -81,7 +89,12 @@ public final class BuildSession {
         enter(State.PLANNING);
     }
 
-    public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions) {
+    public void tick(WorldView world, PlayerView player, InventoryView inv, SafetyView safetyView, PrintActions actions) {
+        if (state == State.PAUSED) {
+            autoResume(world, player, inv, safetyView);
+            return;
+        }
+        if (running() && pauseForSafety(world, player, inv, safetyView)) return;
         switch (state) {
             case PLANNING -> {
                 replan(world, player);
@@ -114,6 +127,7 @@ public final class BuildSession {
     /** Continues where {@link #pause()} stopped; false if not paused. */
     public boolean resume() {
         if (state != State.PAUSED) return false;
+        safetyPause = Optional.empty();
         activeSince = clockMs.getAsLong();
         enter(beforePause);
         return true;
@@ -121,6 +135,41 @@ public final class BuildSession {
 
     public State state() {
         return state;
+    }
+
+    /** The safety stop that paused the build; empty while running or after a manual pause (P3-03). */
+    public Optional<SafetyMonitor.Trigger> safetyPause() {
+        return safetyPause;
+    }
+
+    /** Pauses if a safety stop fires; true means this tick does nothing else (P3-03). */
+    private boolean pauseForSafety(WorldView world, PlayerView player, InventoryView inv, SafetyView view) {
+        Optional<SafetyMonitor.Trigger> trigger = safety.check(view, chunkLoaded(world, player), printer.outOfMaterials(inv));
+        if (trigger.isEmpty()) return false;
+        pause();
+        safetyPause = trigger;
+        notes.accept(trigger.get().message() + (trigger.get().autoResume()
+            ? " Paused; continues once that is over."
+            : " Paused, continue with .sf resume."));
+        return true;
+    }
+
+    /** Continues a build paused by a safety stop as soon as the reason is gone (P3-03). */
+    private void autoResume(WorldView world, PlayerView player, InventoryView inv, SafetyView view) {
+        if (safetyPause.isEmpty()) return;
+        SafetyMonitor.Trigger trigger = safetyPause.get();
+        if (!trigger.autoResume()) return;
+        if (!safety.cleared(trigger, view, chunkLoaded(world, player), printer.outOfMaterials(inv))) return;
+        resume();
+        notes.accept("Continuing, " + trigger.reason() + " is over.");
+    }
+
+    /** The chunk being worked in: the current cluster, or where the player stands before the first one. */
+    private boolean chunkLoaded(WorldView world, PlayerView player) {
+        BlockPos at = current >= 0 && current < clusters.size()
+            ? clusters.get(current).center()
+            : BlockPos.containing(player.eyePos());
+        return world.isChunkLoaded(at);
     }
 
     public Status status() {

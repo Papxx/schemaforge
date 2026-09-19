@@ -221,9 +221,29 @@ neuen Navigator und ruft `cancel()` in `onDeactivate`. Build + 147 Tests grün.
   ohne Pfadfinder nie TRAVELING; Pause während der Fahrt gibt den Pfad frei und zählt keinen Fehlversuch.
 - AK1/AK2 **offen**: beides sind In-game-Tests (Baritone läuft im Unit-Test nicht) → TESTLOG.
 
-### P3-03 · Sicherheitsstopps → PAUSED `todo`
+### P3-03 · Sicherheitsstopps → PAUSED `done`
 Schaden, Hunger < `minFood`, Spieler im Radius, Chunk nicht geladen, Inventar leer für alle offenen Tasks.
 - AK1 Manuell je Bedingung: Pause + Chat-Grund; Fortsetzen automatisch, wenn Bedingung weg (Spieler) bzw. `.sf resume` (Schaden)
+
+Stand 2026-09-19: `core/SafetyMonitor` prüft in fester Reihenfolge DAMAGE → FOOD → PLAYER_NEARBY → CHUNK_UNLOADED →
+NO_MATERIALS und liefert einen `Trigger(reason, message, autoResume)`; er entscheidet nur, pausiert nichts selbst.
+Schaden = Leben unter dem Wert des letzten Ticks (nur bei `pauseOnDamage`); weil während der Pause nicht geprüft wird,
+bleibt das Leben des Pausen-Ticks der Vergleichswert und ein `.sf resume` pausiert nicht sofort wieder. `autoResume` ist
+nur bei DAMAGE false. Neu `core/view/SafetyView` (health/food/nächster anderer Spieler) mit `compat/McSafetyView`
+(`getFoodData().getFoodLevel()`, `ClientLevel.players()` ohne Zuschauer – Signaturen per `javap` gegen das 26.2-Jar
+geprüft) und `Printer.outOfMaterials(inv)` (Cluster braucht Items, keines davon im Inventar). `BuildSession` prüft vor
+jedem Schritt eines laufenden Laufs und setzt in PAUSED nur fort, wenn der Grund weg ist; Signatur geändert
+(ARCHITECTURE.md §3/§4/§5/§7 vorher angepasst): `BuildSession(..., SafetyMonitor safety, ...)`,
+`tick(world, player, inv, safetyView, actions)`, neu `safetyPause()`. Settings-Gruppe `Safety` im Modul angelegt
+(`pause-on-damage` true, `min-food` 6, `pause-player-radius` 16, 0 schaltet die Spielerprüfung ab); die Werte werden bei
+jeder Prüfung gelesen. Build + 157 Tests grün.
+- `SafetyMonitorTest` (7): erster Check merkt nur das Leben, Schaden → DAMAGE ohne autoResume, dauerhaft niedriges Leben
+  pausiert nicht erneut, `pauseOnDamage` aus, Hunger (Grenze `minFood` selbst reicht zum Fortsetzen), Spieler genau auf
+  dem Radius pausiert / knapp darüber nicht / niemand da, Chunk und leeres Inventar, Vorrang von DAMAGE.
+- `BuildSessionTest` +3: Schaden pausiert, bleibt 10 Ticks pausiert, setzt nichts und läuft erst nach `.sf resume`
+  weiter; Spieler in der Nähe pausiert und der Lauf geht von allein weiter, wenn er sich entfernt; leeres Inventar
+  pausiert (sobald der Bedarf des ersten Clusters feststeht) und läuft weiter, wenn die Items wieder da sind.
+- AK1 **offen**: In-game je Bedingung → TESTLOG.
 
 ### P3-04 · `BuildResume` `todo`
 Checkpoint alle 30 s + bei Stop. `.sf start` mit vorhandenem Checkpoint fragt „resume? .sf resume“.
@@ -320,6 +340,16 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - `SchemaPrinter`: `blocksPerTick` > 1 ist einstellbar, aber die Zusatzpakete (Rotation, Sneak) zählt das Budget noch nicht – vor P5-05 messen
 - `.sf verify` und `.sf materials` (§8) haben noch kein Ticket; `.sf status` deckt den Verifier-Teil bisher nur als Zählung „left to place / mismatched“ ab
 
+- P3-01 AK1 in-game nachholen: `.sf debug goto x y z` läuft zum Ziel (braucht Baritone im Dev-Client)
+- P3-02 AK1/AK2 in-game nachholen: 20×20×3-Plattform → bauen/laufen/bauen, kein Cluster > 3× angelaufen; eingemauerter
+  Cluster → Blacklist-Meldung, Bau geht weiter. Dabei prüfen, ob `ARRIVE_DISTANCE` = 5 in der Praxis reicht oder
+  Baritone regelmäßig zu weit weg stehen bleibt
+- P3-03 AK1 in-game je Bedingung nachholen (Schaden, Hunger, Spieler im Radius, Chunk entladen, leeres Inventar)
+- `.sf status` zeigt den Grund einer automatischen Pause noch nicht an (`BuildSession.safetyPause()` gibt es), nur die
+  Chat-Meldung – `StatusReport` müsste den Grund mitbekommen
+- `SafetyMonitor`: Schadenserkennung vergleicht nur den Lebensbalken; Rüstungsschaden ohne Lebensverlust oder Gift, das
+  genau bis 1 zieht, lösen nichts aus. Ggf. an Meteors Damage-Event hängen
+- `Printer.outOfMaterials` nutzt den Bedarf vom Beginn des Cluster-Besuchs, zählt also schon gesetzte Blöcke mit
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)
