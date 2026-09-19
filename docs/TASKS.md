@@ -418,19 +418,59 @@ Lauf mit FAILED und einer Meldung, ohne dass etwas verloren geht (AK3).
   Inventar schon hat wird nicht geholt, Klicks laufen durchs Budget, Abbruch gibt Pfad und Screen zurück.
 - AK1/AK2/AK3 **offen** als In-game-Tests → TESTLOG; die Unit-Tests decken AK2 und AK3 logisch ab.
 
-### P4-05 · Shulker im Inventar (Option) `in_progress`
+### P4-05 · Shulker im Inventar (Option) `done`
 Nur wenn `useInventoryShulkers`. Platzieren → öffnen → entnehmen → abbauen → aufnehmen.
 - AK1 Manuell: Ablauf funktioniert; Shulker landet wieder im Inventar; bei `additiveOnly` erlaubt (eigener temp-Block)
 
-### P4-06 · `.sf materials` Vier-Spalten `in_progress`
+Stand 2026-09-19: `core/ShulkerProcess` als Zustandsmaschine (PLACING → OPENING → WAIT_SCREEN → TAKE → CLOSE →
+BREAKING), gegen ein `Actions`-Interface programmiert und damit ohne Minecraft testbar. Standardmäßig **aus**
+(`use-inventory-shulkers`), weil Platzieren und Abbauen auf Servern auffällt. Jeder Schritt kostet eine Einheit des
+Klick-Budgets. Das ist die einzige Stelle, an der SchemaForge einen Block bricht – und immer nur den, den es selbst
+gerade gesetzt hat; damit bleibt Regel 6 (additive-only) gewahrt. Beim Abbrechen bleibt eine schon stehende Kiste
+bewusst stehen und es gibt eine Meldung, statt sie stillschweigend liegen zu lassen. Im Modul sucht `freeSpot()` einen
+ersetzbaren Nachbarblock mit festem Boden und Luft darüber, platziert wird über Meteors `BlockUtils.place`, abgebaut
+über `BlockUtils.breakBlock`. Ein passender Shulker im Inventar wird **vor** jedem Laufweg zu einer Kiste probiert
+(`InventoryView.shulkersContaining`). ARCHITECTURE.md §1/§4 vorher ergänzt. Build + 221 Tests grün.
+- `ShulkerProcessTest` (7): kompletter Ablauf in der richtigen Reihenfolge, kein freier Platz → FAILED bevor etwas
+  passiert, Kiste erscheint nicht → Timeout, Kiste lässt sich nicht abbauen → Meldung, Shulker ohne das gesuchte Item
+  wird trotzdem wieder aufgenommen, Abbrechen warnt solange sie steht, leeres Budget sendet gar nichts.
+- AK1 **offen**: In-game-AK → TESTLOG.
+
+### P4-06 · `.sf materials` Vier-Spalten `done`
 Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - AK1 Manuell: Zahlen stimmen mit Preview + `.sf containers` überein
+
+Stand 2026-09-19: `core/MaterialsReport` baut die Zeilen (Kopfzeile, je Item die fünf Spalten, Summenzeile), das
+Kommando `commands/MaterialsCommand` holt die Zahlen aus denselben Quellen wie die anderen Befehle – `materialTotals`
+des Snapshots (wie `.sf preview`), der Bedarf der nächsten `lookahead-clusters` Cluster (wie der Restock),
+`InvUtils.find(item).count()` (wie `.sf preview`) und die Summe über den `ContainerIndex` (wie `.sf containers`).
+`missing` = nächste Cluster − Inventar − Kisten, nie negativ; sortiert wird nach fehlender Menge, damit oben steht,
+was eine Entscheidung braucht. Über 30 Item-Sorten werden gekürzt. ARCHITECTURE.md §1/§4/§8 vorher ergänzt.
+Build + 229 Tests grün.
+- `MaterialsReportTest` (8): jede Spalte kommt aus ihrer eigenen Quelle, Gedecktes ist nicht „missing" und wird nie
+  negativ, Items die nur die nächsten Cluster brauchen bekommen trotzdem eine Zeile, fehlende Zeilen zuerst,
+  Kopf- und Summenzeile, gedeckter Bau meldet das, lange Listen werden gekürzt, leerer Bau.
+- AK1 **offen**: der Abgleich mit `.sf preview` und `.sf containers` ist ein In-game-AK → TESTLOG.
 
 ---
 
 ## Phase 5 – Feinschliff
 
-### P5-01 · `.sf undo <n>` `in_progress` — aus `PlacementLog`, nur eigene Blöcke, Budget beachten
+### P5-01 · `.sf undo <n>` `done` — aus `PlacementLog`, nur eigene Blöcke, Budget beachten
+
+Stand 2026-09-19: `core/UndoSession` arbeitet die Log-Einträge **neueste zuerst** ab und bricht nur ab, wo die Welt
+noch **genau** den geloggten BlockState hat – hat jemand anderes dort etwas geändert, bleibt es stehen. Nicht geladene
+Chunks, Positionen außer Reichweite und Blöcke, die sich nach 200 Ticks nicht abbauen lassen, werden gemeldet und
+übersprungen. Jeder Abbauschritt kostet eine Budget-Einheit, das Ganze tickt im `SchemaPrinter`, damit es dasselbe
+Paketbudget wie der Drucker nutzt. Neu `PlacementLog.readFrom(file, blocks)` – damit funktioniert Undo auch nach einem
+Neustart, nicht nur für die laufende Sitzung; kaputte Zeilen und Blöcke, die dieses Spiel nicht kennt, werden
+übersprungen statt das ganze Log zu verlieren. `.sf undo <n>` (1–4096) und `.sf undo stop`; während eines laufenden
+Baus wird abgelehnt, weil sich Drucker und Undo sonst gegenseitig bekämpfen. ARCHITECTURE.md §1/§4/§8 vorher ergänzt.
+Build + 235 Tests grün.
+- `UndoSessionTest` (6): neueste zuerst und nur so viele wie verlangt, fremd gewordener Block bleibt unangetastet,
+  nicht geladen/außer Reichweite wird gemeldet und übersprungen, Abbau läuft über mehrere Ticks mit einem Schritt je
+  Budget-Einheit, nicht abbaubarer Block wird nach dem Timeout aufgegeben, mehr verlangt als geloggt.
+- AK: das Ticket nennt keine eigenen AKs; der In-game-Test (Blöcke setzen, `.sf undo 10`) steht aus → TESTLOG.
 ### P5-02 · Temporäre Stützblöcke `todo` — Whitelist, Log-Flag `temp`, Entfernen am Cluster-Ende, nur `additiveOnly=false`
 ### P5-03 · Fluids `todo` — Bucket vom Nachbarblock, Quellblock-Check, Setting `handleFluids`
 ### P5-04 · Rails `todo` — Reihenfolge gerade→Kurve, Verifier-Gegencheck
@@ -513,6 +553,16 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
   PAUSED-Zweig. Entweder den Zustand nutzen oder ihn aus §5 streichen
 - `RestockProcess`: die Müll-Liste legt in **denselben** Container zurück; ist der voll, hilft das nicht. PLAN 3.4
   nennt als ersten Schritt Wegwerfen nach Liste, das gibt es bewusst nicht (kein Item-Verlust)
+- P4-05 AK1 in-game nachholen: Shulker platzieren → öffnen → entnehmen → abbauen → wieder im Inventar. Dabei prüfen,
+  ob `freeSpot()` in engen Baustellen etwas findet und ob der Abbau mit dem Werkzeug in der Hand schnell genug ist
+- P4-06 AK1 in-game nachholen: Zahlen gegen `.sf preview` und `.sf containers` prüfen
+- P5-01 in-game nachholen: ein paar Blöcke drucken, `.sf undo 10`, prüfen dass fremde Blöcke stehen bleiben
+- `.sf materials` plant die ganze Schematic neu, um die nächsten Cluster zu kennen – bei großen Placements dauert das
+  einen Moment (gleiche Frage wie beim Ruckler in PLANNING/VERIFYING)
+- `UndoSession`: der Undo läuft nur von der Stelle aus, an der man steht – kein Navigator. Für verstreute Blöcke
+  müsste er die Cluster anlaufen wie der Printer
+- `.sf undo` liest das Log der **aktuell eingestellten** Schematic; wer das Placement-Setting ändert, undoet ein
+  anderes Log
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

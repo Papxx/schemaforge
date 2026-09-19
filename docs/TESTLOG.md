@@ -33,3 +33,6 @@
 | 2026-09-19 | P4-02 | NICHT GETESTET (in-game) | Nur Unit-Tests (`ContainerKeyTest` 7, `ContainerReportTest` 6), 197 grün. AK1 (3 Kisten → `.sf containers`), AK2 (Doppelkiste, 54 Slots) und AK3 (Enderkiste) sind In-game-AKs → Backlog |
 | 2026-09-19 | P4-03 | NICHT GETESTET (in-game) | Nur Unit-Tests (`ScanSessionTest` 8), 205 grün. AK1 (6 Kisten in 20 Blöcken, Dauer < 2 min) ist ein In-game-AK → Backlog |
 | 2026-09-19 | P4-04 | NICHT GETESTET (in-game) | Nur Unit-Tests (`RestockProcessTest` 9), 214 grün. AK2 (leere Kiste → nächste Quelle, Index korrigiert) und AK3 (volles Inventar ohne Müll-Liste → FAILED, kein Item-Verlust) sind logisch abgedeckt, AK1 (Meilenstein M4: Bau holt selbst nach) braucht einen In-game-Lauf → Backlog |
+| 2026-09-19 | P4-05 | NICHT GETESTET (in-game) | Nur Unit-Tests (`ShulkerProcessTest` 7), 221 grün. AK1 (Ablauf platzieren→öffnen→entnehmen→abbauen→aufnehmen) ist ein In-game-AK → Backlog |
+| 2026-09-19 | P4-06 | NICHT GETESTET (in-game) | Nur Unit-Tests (`MaterialsReportTest` 8), 229 grün. AK1 (Zahlen gegen `.sf preview` und `.sf containers`) ist ein In-game-AK → Backlog |
+| 2026-09-19 | P5-01 | NICHT GETESTET (in-game) | Nur Unit-Tests (`UndoSessionTest` 6), 235 grün. In-game (`.sf undo n` nach einem Druck, fremde Blöcke bleiben stehen) steht aus → Backlog |

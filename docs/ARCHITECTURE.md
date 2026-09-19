@@ -36,6 +36,9 @@ dev.tore.schemaforge
 │   ├── ContainerKey                 Doppelkisten-Hälfte, Enderkisten-Sentinel, Dateiname (P4-02)
 │   ├── ContainerReport              Text von .sf containers als Zeilenliste (P4-02)
 │   ├── ScanSession                  Container der Reihe nach anlaufen, öffnen, lernen (P4-03)
+│   ├── ShulkerProcess               Shulker aus dem Inventar setzen, leeren, abbauen (P4-05)
+│   ├── MaterialsReport              Tabelle von .sf materials (P4-06)
+│   ├── UndoSession                  eigene Blöcke aus dem PlacementLog zurücknehmen (P5-01)
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
@@ -372,6 +375,8 @@ public final class PlacementLog {
     public void append(BlockPos pos, BlockState block, boolean temp);
     public List<Entry> entries();                                    // Einträge dieser Sitzung
     public Optional<IOException> writeError();                       // erster Schreibfehler; danach nur noch im Speicher
+    public static List<Entry> readFrom(Path file, HolderLookup<Block> blocks);   // P5-01: Datei zurücklesen, älteste zuerst;
+                                                                     //  kaputte Zeilen und unbekannte Blöcke werden übersprungen
 }
 
 // P3-05. Zeilen des Fortschritts-HUD; hud/BuildProgressHud zeichnet sie nur.
@@ -414,6 +419,45 @@ public final class ScanSession {
     // TRAVELING: in Reichweite → OPENING (Navigator freigeben), Navigator FAILED → Meldung, Container übersprungen.
     // OPENING: höchstens ein Öffnen je openIntervalTicks (Regel 7). WAITING: bis der Inhalt gelernt ist, sonst
     //  Timeout → übersprungen. Ohne Baritone wird jeder Container von der Stelle aus versucht.
+}
+
+// P4-05. Shulker aus dem Inventar: setzen, öffnen, entnehmen, abbauen, aufnehmen. Nur mit use-inventory-shulkers.
+// Die einzige Stelle, an der SchemaForge einen Block bricht – und immer nur den, den es selbst gesetzt hat (Regel 6).
+public final class ShulkerProcess {
+    public enum State { IDLE, PLACING, OPENING, WAIT_SCREEN, TAKE, CLOSE, BREAKING, DONE, FAILED }
+    public interface Actions {
+        Optional<BlockPos> freeSpot(); boolean place(BlockPos pos, Item shulker); boolean isShulkerAt(BlockPos pos);
+        void open(BlockPos pos); void close(); boolean screenOpen(); Map<Item,Integer> openContents();
+        boolean take(Item item); boolean breakBlock(BlockPos pos); boolean isAir(BlockPos pos);
+    }
+    public record Config(int placeTimeoutTicks, int screenTimeoutTicks, int breakTimeoutTicks) { static Config defaults(); }
+    public ShulkerProcess(Actions actions, ActionBudget budget, Config config, Consumer<String> notes);
+    public void start(Item shulker, Map<Item,Integer> demand); public void tick(InventoryView inv);
+    public boolean running(); public State state(); public int takenCount(); public Map<Item,Integer> missing();
+    public void cancel();                                            // lässt eine stehende Kiste bewusst stehen + meldet es
+}
+
+// P4-06. Tabelle von .sf materials; Farben liegen im Command.
+public final class MaterialsReport {
+    public static final int MAX_ROWS = 30;
+    public record Row(Item item, int total, int upcoming, int inventory, int containers) { public int missing(); }
+    public static List<Row> rows(Map<Item,Integer> total, Map<Item,Integer> upcoming,
+                                 ToIntFunction<Item> inventory, ToIntFunction<Item> containers);
+    public static List<String> lines(List<Row> rows);                // Kopfzeile, Zeilen, Summenzeile
+    // missing = upcoming − inventory − containers, nie negativ. Sortiert: fehlende zuerst, dann größter Bedarf.
+}
+
+// P5-01. Nimmt die zuletzt gesetzten eigenen Blöcke zurück, neueste zuerst.
+public final class UndoSession {
+    public interface Actions { boolean breakBlock(BlockPos pos); }
+    public static final int BREAK_TIMEOUT_TICKS = 200;
+    public UndoSession(List<PlacementLog.Entry> entries, int count, Actions actions, ActionBudget budget,
+                       Consumer<String> notes);
+    public void tick(WorldView world, PlayerView player);
+    public boolean running(); public int removedCount(); public int skippedCount(); public int requestedCount();
+    public Optional<BlockPos> target();
+    // Nur wo die Welt noch genau den geloggten BlockState hat – alles andere gehört jemand anderem und bleibt stehen.
+    // Nicht geladen, außer Reichweite oder nicht abbaubar → Meldung und übersprungen.
 }
 
 // P4-02. Wie ein Container im Index adressiert wird.
@@ -604,6 +648,8 @@ setzt dort fort, ein zweites `.sf start` verwirft ihn und fängt von vorn an.
 P4-02: `.sf containers` listet den Index (nächste zuerst, stale zuletzt, je Container die vier größten Item-Sorten).
 P4-03: `.sf scan [radius]` (Default 32, 1–128) läuft die Container in geladenen Chunks ab; `.sf scan stop` bricht ab.
 P4-04: Der Restock hat keinen eigenen Befehl – er läuft von allein, während der Bau mit NO_MATERIALS pausiert.
+P4-06: `.sf materials [placement]` – Item | gesamt | nächste Cluster | Inventar | bekannte Kisten, fehlende zuerst.
+P5-01: `.sf undo <n>` nimmt die letzten n eigenen Blöcke zurück, `.sf undo stop` bricht ab. Nicht während eines Baus.
 .sf restock [item]      .sf scan [radius]      .sf containers
 .sf undo <n>            .sf doctor
 ```
