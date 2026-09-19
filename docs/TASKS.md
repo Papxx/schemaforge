@@ -177,10 +177,23 @@ Stand 2026-09-17: Zustandsautomat als testbares `core/BuildSession` (IDLE→PLAN
 
 ## Phase 3 – Navigator + Robustheit
 
-### P3-01 · `BaritoneBridge` `todo`
+### P3-01 · `BaritoneBridge` `done`
 Nur `baritone.api`. `gotoNear`, `gotoBlock`, `isPathing`, `stop`, Settings-Backup/Restore.
 - AK1 Manuell: `.sf` interner Testbefehl `.sf debug goto x y z` läuft zum Ziel
 - AK2 Ohne Baritone: Methoden werfen nicht, `isPresent()==false`
+
+Stand 2026-09-19: `gotoNear`/`gotoBlock` über `getCustomGoalProcess().setGoalAndPath(new GoalNear(pos, radius))` bzw.
+`new GoalGetToBlock(pos)`, `isPathing()` über `getPathingBehavior().isPathing()`, `stop()` über
+`getCustomGoalProcess().onLostControl()` + `getPathingBehavior().cancelEverything()` – Einstiegspunkt und Schreibweise wie in
+Meteors `BaritonePathManager` (refs), Signaturen per `javap` gegen `baritone-26.2-SNAPSHOT.jar` geprüft
+(`IBaritone`, `IPathingBehavior`, `ICustomGoalProcess`, `GoalNear(BlockPos,int)`, `GoalGetToBlock(BlockPos)`).
+Alle Baritone-Referenzen liegen in der privaten `BaritoneBridge.Api`, die erst geladen wird, wenn ein Aufruf an
+`isPresent()` vorbeikam; `isPresent()` cached das Ergebnis. `getPrimaryBaritone()` kann vor dem Welt-Beitritt `null` sein →
+Log-Warnung statt NPE. Settings-Backup/Restore liegt seit P2-06 im `AdditiveOnlyGuard` (`BREAK_SETTINGS`), nicht hier.
+Neu `commands/DebugCommands`: `.sf debug goto <x> <y> <z>` und `.sf debug stopgoto`. Build + 138 Tests grün.
+- AK2 erfüllt: `BaritoneBridgeTest` (3) – Baritone fehlt im Test-Runtime (`compileOnly`), `isPresent()` false, alle vier
+  Methoden werfen nicht, `isPathing()` false.
+- AK1 **offen**: In-game-Test → TESTLOG.
 
 ### P3-02 · `Navigator` + TRAVELING-State `todo`
 Cluster ohne erreichbare Tasks → `gotoNear(center, 3)`; Timeout 20 s → Cluster ans Ende der Liste, nach 3 Fehlversuchen blacklisten und melden.
