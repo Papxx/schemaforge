@@ -36,3 +36,8 @@
 | 2026-09-19 | P4-05 | NICHT GETESTET (in-game) | Nur Unit-Tests (`ShulkerProcessTest` 7), 221 grün. AK1 (Ablauf platzieren→öffnen→entnehmen→abbauen→aufnehmen) ist ein In-game-AK → Backlog |
 | 2026-09-19 | P4-06 | NICHT GETESTET (in-game) | Nur Unit-Tests (`MaterialsReportTest` 8), 229 grün. AK1 (Zahlen gegen `.sf preview` und `.sf containers`) ist ein In-game-AK → Backlog |
 | 2026-09-19 | P5-01 | NICHT GETESTET (in-game) | Nur Unit-Tests (`UndoSessionTest` 6), 235 grün. In-game (`.sf undo n` nach einem Druck, fremde Blöcke bleiben stehen) steht aus → Backlog |
+| 2026-09-19 | P5-02 | NICHT GETESTET (in-game) | Nur Unit-Tests (`TempSupportsTest` 4, `PrinterTest` +4), 243 grün. In-game (schwebende Blöcke mit `additive-only` aus und `temp-supports` an, Stützblock verschwindet am Cluster-Ende) steht aus → Backlog |
+| 2026-09-19 | P5-03 | NICHT GETESTET (in-game) | Nur Unit-Tests (`PlacementSolverTest` +3, `PrinterTest` +4, `BuildSessionTest` +1), 251 grün. In-game (Wasser/Lava per Eimer, mit und ohne `rotation-spoof`) steht aus → Backlog |
+| 2026-09-19 | P5-04 | NICHT GETESTET (in-game) | Nur Unit-Tests (`PlacementSolverTest` +4, `WorkPlannerTest` +1, `PrinterTest` +2), 258 grün. In-game (Schienenstrecke mit Kurven und Steigung, Gegencheck-Meldungen) steht aus → Backlog |
+| 2026-09-19 | P5-05 | NICHT GETESTET (in-game) | Nur Unit-Tests (`PacingProfileTest` 4), 262 grün. In-game (FAST auf lokalem Paper: Blöcke/min, Ghost-Blocks, Warnung im Chat) steht aus → Backlog |
+| 2026-09-19 | P5-06 | NICHT GETESTET (in-game) | Nur Unit-Tests (`AccuratePlacementTest` 9, `PlacementSolverTest` +3), 274 grün. Braucht einen Server mit Carpet `accurateBlockPlacement` (V2) bzw. Servux (V3) → Backlog |
