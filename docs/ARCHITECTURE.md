@@ -39,6 +39,7 @@ dev.tore.schemaforge
 │   ├── ShulkerProcess               Shulker aus dem Inventar setzen, leeren, abbauen (P4-05)
 │   ├── MaterialsReport              Tabelle von .sf materials (P4-06)
 │   ├── UndoSession                  eigene Blöcke aus dem PlacementLog zurücknehmen (P5-01)
+│   ├── TempSupports                 temporäre Stützblöcke setzen und am Cluster-Ende abräumen (P5-02)
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
@@ -328,6 +329,35 @@ public final class Printer {
     //  P2-05: Hotbar über materials.select(item): Ready → platzieren · Swap → swapToHotbar (eine Budget-Einheit, zählt als
     //  Versuch; platziert wird im nächsten Durchlauf) · Missing → Versuch ohne Paket (Fehlbestand-Event feuert der MaterialManager).
 }
+
+// P5-02/P5-03/P5-04/P5-06. Zusätze des Printers; der alte Konstruktor ohne Options nutzt defaults().
+public record Printer.Options(Optional<TempSupports> supports, boolean handleFluids, EasyPlaceProtocol protocol,
+                              Consumer<String> notes) {
+    public static Options defaults();                                // keine Stützblöcke, keine Fluids, NONE, Notizen verworfen
+}
+// Printer(solver, planner, materials, budget, log, options).
+// P5-02: NeedsSupport(at) + supports vorhanden + supports.allowedFor(target, at, world) → Stützblock aus der Whitelist
+//  (erster im Inventar) an at: eigener Solve als voller Block, gleiche Reichweiten-/Sicht-/Budget-Regeln, zählt als
+//  Versuch für den Ziel-Task, PlacementLog.append(at, block, temp=true), nicht in placedCount. Kein Stützblock für den
+//  Stützblock (keine Kette). clusterDone erst, wenn alle Stützblöcke dieses Besuchs wieder weg sind: Abbau über eine
+//  UndoSession (nur wo noch genau der geloggte Block steht, eine Budget-Einheit je Schritt).
+
+// P5-02. Temporäre Stützblöcke; nur mit additiveOnly=false (SchemaPrinter legt sonst keine an, der Printer hat dann
+// keinen Weg zu brechen).
+public final class TempSupports {
+    public TempSupports(List<Block> whitelist, Predicate<BlockPos> reserved, UndoSession.Actions breaker, Consumer<String> notes);
+    public static Predicate<BlockPos> reservedBy(SchematicSnapshot snap); // in der Box und nicht als Luft bekannt → reserviert
+    public boolean allowedFor(BlockState target, BlockPos at, WorldView world);
+    //  target steht ohne Träger (PlacementSolver.standsWithoutSupport), at geladen + ersetzbar + nicht reserviert
+    public Optional<Block> pick(InventoryView inv);                  // erster Whitelist-Block mit Item im Inventar
+    public void placed(BlockPos pos, BlockState state);
+    public boolean pending();                                        // Stützblöcke dieses Besuchs noch nicht abgeräumt
+    public void tickClearing(WorldView world, PlayerView player, ActionBudget budget);
+    public void reset();                                             // neuer Cluster-Besuch
+    public int placedCount(); public int removedCount();
+}
+// PlacementSolver.standsWithoutSupport(target): Regel vorhanden und kein abhängiger Block (Fackel, Knopf, Tür, Teppich,
+//  Schild, Leiter, Schiene …) – nur solche Blöcke bleiben stehen, wenn der Stützblock wieder verschwindet.
 
 // P2-05. Erlaubte Hotbar-Slots. Text wie im Spiel nummeriert (Tasten 1–9): „2-8“, „1,3,5-7“; intern Index 0–8.
 public record HotbarSlots(Set<Integer> indices) {                   // aufsteigend, nicht leer
@@ -631,6 +661,7 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 | Placement | rotationSpoof | bool | false |
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
 | Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P3-03; Radius 0 schaltet die Spielerprüfung ab
+| Supports | tempSupports / supportBlocks | bool / BlockList | false / dirt, cobblestone, netherrack |  ← P5-02; nur sichtbar und wirksam mit additiveOnly=false
 
 Modul `ContainerRestock` (P4-02/P4-03/P4-04): `learn-passively` true · `lookahead-clusters` 3 · `clicks-per-tick` 2 ·
 `trash` (ItemList, leer) · `stale-after-hours` 24.

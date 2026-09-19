@@ -23,6 +23,7 @@ import dev.tore.schemaforge.core.SafetyMonitor;
 import dev.tore.schemaforge.core.Printer;
 import dev.tore.schemaforge.core.SchematicSnapshot;
 import dev.tore.schemaforge.core.SolverConfig;
+import dev.tore.schemaforge.core.TempSupports;
 import dev.tore.schemaforge.core.UndoSession;
 import dev.tore.schemaforge.core.Substitutes;
 import dev.tore.schemaforge.core.WorkPlanner;
@@ -69,6 +70,7 @@ public final class SchemaPrinter extends Module {
     private final SettingGroup sgFilters = settings.createGroup("Filters");
     private final SettingGroup sgPlacement = settings.createGroup("Placement");
     private final SettingGroup sgSafety = settings.createGroup("Safety");
+    private final SettingGroup sgSupports = settings.createGroup("Supports");
     private final SettingGroup sgDebug = settings.createGroup("Debug");
 
     private final Setting<String> placement = sgGeneral.add(new ProvidedStringSetting.Builder()
@@ -208,6 +210,20 @@ public final class SchemaPrinter extends Module {
         .sliderRange(0, 64)
         .build());
 
+    private final Setting<Boolean> tempSupports = sgSupports.add(new BoolSetting.Builder()
+        .name("temp-supports")
+        .description("Place a temporary block where a target has nothing to be clicked against, remove it at the end of the cluster. Needs additive-only off.")
+        .defaultValue(false)
+        .visible(() -> !additiveOnly.get())
+        .build());
+
+    private final Setting<List<Block>> supportBlocks = sgSupports.add(new BlockListSetting.Builder()
+        .name("support-blocks")
+        .description("Blocks used as temporary supports, first one in the inventory wins.")
+        .defaultValue(Blocks.DIRT, Blocks.COBBLESTONE, Blocks.NETHERRACK)
+        .visible(() -> !additiveOnly.get() && tempSupports.get())
+        .build());
+
     private final Setting<Boolean> logStateChanges = sgDebug.add(new BoolSetting.Builder()
         .name("log-state-changes")
         .description("Print every state change of the build to chat.")
@@ -343,7 +359,8 @@ public final class SchemaPrinter extends Module {
         WorkPlanner planner = new WorkPlanner(plan);
         MaterialManager materials = new MaterialManager(this::currentHotbarSlots, this::onShortage);
         Printer printer = new Printer(new PlacementSolver(new SolverConfig(clickAdjacentOnly.get(), lineOfSight.get())),
-            planner, materials, budget, PlacementLog.toFile(FOLDER.resolve("placementlog-" + fileName(name) + ".jsonl")));
+            planner, materials, budget, PlacementLog.toFile(FOLDER.resolve("placementlog-" + fileName(name) + ".jsonl")),
+            new Printer.Options(supportsForRun(snapshot.get()), note -> warning("%s", note)));
 
         rotationSpoofInRun = rotationSpoof.get();
         tickCounter = 0;
@@ -354,6 +371,23 @@ public final class SchemaPrinter extends Module {
         SafetyMonitor safety = new SafetyMonitor(this::safetyConfig);
         return Optional.of(new BuildSession(snapshot.get(), planner, printer, navigator, safety,
             System::currentTimeMillis, this::onStateChange, note -> warning("%s", note)));
+    }
+
+    /**
+     * Temporary supports for this run (P5-02); only with additive-only off, so an additive run has no way to break.
+     */
+    private Optional<TempSupports> supportsForRun(SchematicSnapshot snapshot) {
+        if (!tempSupports.get()) return Optional.empty();
+        if (additiveOnly.get()) {
+            info("temp-supports is ignored while additive-only is on.");
+            return Optional.empty();
+        }
+        if (supportBlocks.get().isEmpty()) {
+            warning("temp-supports is on but support-blocks is empty; no supports are placed.");
+            return Optional.empty();
+        }
+        return Optional.of(new TempSupports(supportBlocks.get(), TempSupports.reservedBy(snapshot),
+            pos -> BlockUtils.breakBlock(pos, true), note -> warning("%s", note)));
     }
 
     /** Refills the budget and runs one step of the state machine (P2-01, P2-07). */

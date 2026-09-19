@@ -141,6 +141,14 @@ public final class PlacementSolver {
     }
 
     /**
+     * True if the placed block keeps standing when the block it was clicked against disappears again (P5-02):
+     * a rule exists and it is not one of the dependent blocks that hang on a floor, wall or ceiling.
+     */
+    public static boolean standsWithoutSupport(BlockState target) {
+        return unsupportedReason(target).isEmpty() && dependentRule(target).isEmpty();
+    }
+
+    /**
      * @param faceAllowed which clicked faces yield the target state
      * @param half        hit height for side clicks
      * @param yaw         look direction the player needs for a clicked face, if the state depends on it

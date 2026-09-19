@@ -10,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -226,6 +227,80 @@ class PrinterTest {
         assertEquals(2, log.entries().size());
     }
 
+    // --- P5-02 temporary supports -------------------------------------------------------------------
+
+    /** A block floating one above the floor: dirt goes under it first, the stone follows, the dirt goes again. */
+    @Test
+    void floatingBlockGetsATemporarySupportThatIsRemovedAtTheClusterEnd() {
+        BlockPos target = new BlockPos(2, 65, 0);
+        BlockPos support = target.below();
+        List<BlockPos> broken = new ArrayList<>();
+        Setup s = floating(target, broken, List.of(Blocks.DIRT));
+        s.inventory.put(5, Items.DIRT, 16);
+
+        for (int i = 0; i < 12 && !s.printer.clusterDone(); i++) s.tick();
+
+        assertTrue(s.printer.clusterDone());
+        assertEquals(List.of(support, target), s.actions.targets(), "support first, then the target");
+        assertEquals(List.of(support, target), s.log.entries().stream().map(PlacementLog.Entry::pos).toList());
+        assertTrue(s.log.entries().getFirst().temp(), "the support is logged as temp");
+        assertFalse(s.log.entries().get(1).temp());
+        assertEquals(List.of(support), broken.stream().distinct().toList(), "only the support is broken");
+        assertTrue(s.world.getBlockState(support).isAir());
+        assertEquals(STONE, s.world.getBlockState(target));
+        assertEquals(1, s.printer.placedCount(), "supports do not count as placed blocks");
+    }
+
+    @Test
+    void withoutSupportsAFloatingBlockIsNeverSentAndNothingIsBroken() {
+        BlockPos target = new BlockPos(2, 65, 0);
+        Setup s = new Setup(Map.of(target, STONE), Map.of(new BlockPos(2, 63, 0), STONE), new AtomicInteger(1), true,
+            false, _ -> Printer.Options.defaults());
+        s.inventory.put(5, Items.DIRT, 16);
+        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertTrue(s.actions.sent.isEmpty());
+    }
+
+    @Test
+    void noSupportBlockInTheInventoryMeansNoSupport() {
+        List<BlockPos> broken = new ArrayList<>();
+        Setup s = floating(new BlockPos(2, 65, 0), broken, List.of(Blocks.DIRT));
+        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertTrue(s.actions.sent.isEmpty());
+        assertTrue(broken.isEmpty());
+    }
+
+    /** A support someone replaced meanwhile is no longer ours and stays. */
+    @Test
+    void aSupportChangedByOthersIsLeftStanding() {
+        BlockPos target = new BlockPos(2, 65, 0);
+        BlockPos support = target.below();
+        List<BlockPos> broken = new ArrayList<>();
+        Setup s = floating(target, broken, List.of(Blocks.DIRT));
+        s.inventory.put(5, Items.DIRT, 16);
+        s.tick();
+        s.tick();
+        s.world.set(support, Blocks.COBBLESTONE.defaultBlockState());
+        for (int i = 0; i < 10 && !s.printer.clusterDone(); i++) s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertTrue(broken.isEmpty());
+        assertEquals(Blocks.COBBLESTONE, s.world.getBlockState(support).getBlock());
+    }
+
+    /** Stone target floating above a floor two blocks down, additive-only off, supports from {@code whitelist}. */
+    private static Setup floating(BlockPos target, List<BlockPos> broken, List<Block> whitelist) {
+        return new Setup(Map.of(target, STONE), Map.of(target.below(2), STONE), new AtomicInteger(1), false, false,
+            world -> new Printer.Options(Optional.of(new TempSupports(whitelist, _ -> false, pos -> {
+                broken.add(pos);
+                world.set(pos, Blocks.AIR.defaultBlockState());
+                return true;
+            }, _ -> {
+            })), _ -> {
+            }));
+    }
+
     // --- helpers ------------------------------------------------------------------------------------
 
     /** A row of stone targets at y=64 starting at x, over a stone floor at y=63. */
@@ -242,6 +317,7 @@ class PrinterTest {
         final List<MaterialManager.Shortage> shortages = new ArrayList<>();
         final PlacementLog log = PlacementLog.inMemory();
         final Cluster cluster;
+        final SchematicSnapshot snap;
         final Printer printer;
         final ActionBudget budget;
         FakePlayer player = NEAR;
@@ -256,16 +332,24 @@ class PrinterTest {
 
         /** {@code existing} is set after the floor, before planning. */
         Setup(Map<BlockPos, BlockState> targets, Map<BlockPos, BlockState> existing, AtomicInteger limit, boolean additiveOnly) {
-            for (BlockPos pos : targets.keySet()) world.set(pos.below(), STONE);
+            this(targets, existing, limit, additiveOnly, true, _ -> Printer.Options.defaults());
+        }
+
+        /** @param floor stone under every target; without it only {@code existing} stands */
+        Setup(Map<BlockPos, BlockState> targets, Map<BlockPos, BlockState> existing, AtomicInteger limit, boolean additiveOnly,
+              boolean floor, java.util.function.Function<FakeWorld, Printer.Options> options) {
+            if (floor) for (BlockPos pos : targets.keySet()) world.set(pos.below(), STONE);
             existing.forEach(world::set);
             WorkPlanner planner = new WorkPlanner(new PlanConfig(16, Direction.Axis.Y, true, additiveOnly, true,
                 Set.of(), Set.of(), Set.of(), Map.of(), Set.of()));
-            List<Cluster> clusters = planner.plan(snapshot(targets), world, BlockPos.ZERO);
+            snap = snapshot(targets);
+            List<Cluster> clusters = planner.plan(snap, world, BlockPos.ZERO);
             assertEquals(1, clusters.size());
             cluster = clusters.getFirst();
             budget = new ActionBudget(limit::get);
             MaterialManager materials = new MaterialManager(() -> HotbarSlots.parse("2-8"), shortages::add);
-            printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, materials, budget, log);
+            printer = new Printer(new PlacementSolver(SolverConfig.defaults()), planner, materials, budget, log,
+                options.apply(world));
             printer.startCluster(cluster);
         }
 
@@ -309,7 +393,7 @@ class PrinterTest {
         @Override
         public boolean place(PlacementPlan plan, int hotbarSlot) {
             sent.add(new Sent(plan, hotbarSlot));
-            if (accept) world.set(target(plan), STONE);
+            if (accept) world.set(target(plan), Block.byItem(plan.handItem()).defaultBlockState());
             return true;
         }
 

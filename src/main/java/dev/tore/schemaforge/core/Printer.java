@@ -7,12 +7,15 @@ import dev.tore.schemaforge.core.view.PrintActions;
 import dev.tore.schemaforge.core.view.WorldView;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Tick loop that places the blocks of one cluster within reach (P2-03, rules in ARCHITECTURE.md §4).
@@ -22,11 +25,25 @@ public final class Printer {
     /** Looks at a task per cluster visit before it is given up (AK3). */
     public static final int MAX_ATTEMPTS = 3;
 
+    /**
+     * Optional behaviour on top of plain printing.
+     *
+     * @param supports temporary support blocks (P5-02); empty with additive-only on
+     * @param notes    user-facing one-liners
+     */
+    public record Options(Optional<TempSupports> supports, Consumer<String> notes) {
+        public static Options defaults() {
+            return new Options(Optional.empty(), _ -> {
+            });
+        }
+    }
+
     private final PlacementSolver solver;
     private final WorkPlanner planner;
     private final MaterialManager materials;
     private final ActionBudget budget;
     private final PlacementLog log;
+    private final Options options;
     private final Map<BlockPos, Integer> attempts = new HashMap<>();
 
     private Optional<Cluster> cluster = Optional.empty();
@@ -37,17 +54,24 @@ public final class Printer {
     private int placed;
 
     public Printer(PlacementSolver solver, WorkPlanner planner, MaterialManager materials, ActionBudget budget, PlacementLog log) {
+        this(solver, planner, materials, budget, log, Options.defaults());
+    }
+
+    public Printer(PlacementSolver solver, WorkPlanner planner, MaterialManager materials, ActionBudget budget,
+                   PlacementLog log, Options options) {
         this.solver = solver;
         this.planner = planner;
         this.materials = materials;
         this.budget = budget;
         this.log = log;
+        this.options = options;
     }
 
     /** Starts a new visit of {@code c}: attempts, pass and placed count start from zero; the material demand is recomputed. */
     public void startCluster(Cluster c) {
         cluster = Optional.of(c);
         materials.startCluster(c);
+        options.supports().ifPresent(TempSupports::reset);
         attempts.clear();
         pass = List.of();
         cursor = 0;
@@ -64,6 +88,12 @@ public final class Printer {
                 .toList();
             cursor = 0;
             if (pass.isEmpty()) {
+                // The cluster is finished once its temporary supports are gone again (P5-02).
+                Optional<TempSupports> supports = options.supports().filter(TempSupports::pending);
+                if (supports.isPresent()) {
+                    supports.get().tickClearing(world, player, budget);
+                    return;
+                }
                 done = true;
                 return;
             }
@@ -76,10 +106,10 @@ public final class Printer {
                 cursor++;
                 continue;
             }
-            Optional<PlacementPlan> plan = plan(task, world, player);
+            Optional<Step> step = step(task, world, player, inv);
             // Missing items count as an attempt without a packet; the MaterialManager has fired the shortage event.
-            Optional<MaterialManager.Selection> selection = plan
-                .map(p -> materials.select(p.handItem(), inv))
+            Optional<MaterialManager.Selection> selection = step
+                .map(s -> materials.select(s.plan().handItem(), inv))
                 .filter(s -> !(s instanceof MaterialManager.Selection.Missing));
             if (selection.isPresent() && !budget.tryConsume()) return;
 
@@ -88,10 +118,7 @@ public final class Printer {
             if (selection.isEmpty()) continue;
             switch (selection.get()) {
                 case MaterialManager.Selection.Ready(int slot) -> {
-                    if (actions.place(plan.get(), slot)) {
-                        placed++;
-                        log.append(task.pos(), task.target(), false);
-                    }
+                    if (actions.place(step.get().plan(), slot)) sent(step.get());
                 }
                 // Placed in the next pass, once the item is in the hotbar.
                 case MaterialManager.Selection.Swap(int from, int to) -> actions.swapToHotbar(from, to);
@@ -102,12 +129,12 @@ public final class Printer {
         pass = List.of();
     }
 
-    /** True once no PLACE task of the cluster is left that still has attempts. */
+    /** True once no PLACE task of the cluster is left that still has attempts and its temporary supports are gone. */
     public boolean clusterDone() {
         return done;
     }
 
-    /** Placements sent during this cluster visit. */
+    /** Placements sent during this cluster visit; temporary supports do not count. */
     public int placedCount() {
         return placed;
     }
@@ -122,13 +149,50 @@ public final class Printer {
         return !demand.isEmpty() && demand.keySet().stream().allMatch(item -> inv.count(item) == 0);
     }
 
-    /** A plan the player can send from where they stand, or empty if the task cannot be placed right now. */
-    private Optional<PlacementPlan> plan(BlockTask task, WorldView world, PlayerView player) {
+    /**
+     * What to send for a task: its own placement, or a temporary support first if the target has nothing to be
+     * clicked against (P5-02).
+     *
+     * @param pos   where the block appears
+     * @param block the block that appears there
+     * @param temp  true for a temporary support
+     */
+    private record Step(PlacementPlan plan, BlockPos pos, BlockState block, boolean temp) {
+    }
+
+    private void sent(Step step) {
+        log.append(step.pos(), step.block(), step.temp());
+        if (step.temp()) {
+            options.supports().ifPresent(s -> s.placed(step.pos(), step.block()));
+        } else {
+            placed++;
+        }
+    }
+
+    /** A step the player can send from where they stand, or empty if the task cannot be worked on right now. */
+    private Optional<Step> step(BlockTask task, WorldView world, PlayerView player, InventoryView inv) {
         // proto is evaluated from P5-06 on.
-        if (!(solver.solve(task, world, player, EasyPlaceProtocol.NONE) instanceof SolveResult.Ok(PlacementPlan plan))) {
+        SolveResult result = solver.solve(task, world, player, EasyPlaceProtocol.NONE);
+        if (result instanceof SolveResult.Ok(PlacementPlan plan)) {
+            return reachable(plan, player) ? Optional.of(new Step(plan, task.pos(), task.target(), false)) : Optional.empty();
+        }
+        if (result instanceof SolveResult.NeedsSupport(BlockPos at)) return support(task, at, world, player, inv);
+        return Optional.empty();
+    }
+
+    /** A temporary support at {@code at}, placed like a full block; never a support for the support. */
+    private Optional<Step> support(BlockTask task, BlockPos at, WorldView world, PlayerView player, InventoryView inv) {
+        Optional<TempSupports> supports = options.supports();
+        if (supports.isEmpty() || !supports.get().allowedFor(task.target(), at, world)) return Optional.empty();
+        Optional<Block> block = supports.get().pick(inv);
+        if (block.isEmpty()) return Optional.empty();
+        BlockState state = block.get().defaultBlockState();
+        BlockTask supportTask = new BlockTask(at, state, world.getBlockState(at), TaskKind.PLACE,
+            WorkPlanner.PRIORITY_FULL_BLOCK, SkipReason.NONE);
+        if (!(solver.solve(supportTask, world, player, EasyPlaceProtocol.NONE) instanceof SolveResult.Ok(PlacementPlan plan))) {
             return Optional.empty();
         }
-        return reachable(plan, player) ? Optional.of(plan) : Optional.empty();
+        return reachable(plan, player) ? Optional.of(new Step(plan, at, state, true)) : Optional.empty();
     }
 
     /** Same checks as the solver's candidate rating; the solver returns an unusable plan when nothing better exists. */

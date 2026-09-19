@@ -471,7 +471,29 @@ Build + 235 Tests grün.
   nicht geladen/außer Reichweite wird gemeldet und übersprungen, Abbau läuft über mehrere Ticks mit einem Schritt je
   Budget-Einheit, nicht abbaubarer Block wird nach dem Timeout aufgegeben, mehr verlangt als geloggt.
 - AK: das Ticket nennt keine eigenen AKs; der In-game-Test (Blöcke setzen, `.sf undo 10`) steht aus → TESTLOG.
-### P5-02 · Temporäre Stützblöcke `todo` — Whitelist, Log-Flag `temp`, Entfernen am Cluster-Ende, nur `additiveOnly=false`
+### P5-02 · Temporäre Stützblöcke `done` — Whitelist, Log-Flag `temp`, Entfernen am Cluster-Ende, nur `additiveOnly=false`
+
+Stand 2026-09-19: `core/TempSupports` + Erweiterung des `Printer` um `Printer.Options` (der alte Konstruktor nutzt
+`Options.defaults()`, bestehende Aufrufer bleiben unverändert). Liefert der Solver `NeedsSupport(at)`, setzt der Printer
+an `at` den ersten Block der Whitelist, den das Inventar hat – mit eigenem Solve als voller Block und denselben
+Reichweiten-, Sicht- und Budget-Regeln; das zählt als Versuch für den Ziel-Task, landet mit `temp=true` im
+`PlacementLog` und **nicht** in `placedCount`. Keine Kette (kein Stützblock für den Stützblock). Stützblöcke gibt es
+nur für Ziele, die ohne Träger stehen bleiben (`PlacementSolver.standsWithoutSupport`: Regel vorhanden, kein
+abhängiger Block – eine Fackel fiele mit ihrem Stützblock herunter) und nur an Positionen, die die Schematic nicht
+selbst braucht (`TempSupports.reservedBy`: in der Box und nicht als Luft bekannt; unbekannt zählt als reserviert).
+`clusterDone()` wird erst wahr, wenn die Stützblöcke des Besuchs wieder weg sind. Der Abbau nutzt die `UndoSession`
+aus P5-01 – damit gilt dieselbe Regel: nur wo noch **genau** der gesetzte Block steht, eine Budget-Einheit je Schritt.
+Additive-only bleibt strukturell gesichert: `SchemaPrinter` legt `TempSupports` nur mit `additive-only` aus an, nur
+dann hat der Printer überhaupt einen Weg zu brechen. Neue Settings-Gruppe `Supports`: `temp-supports` (aus) und
+`support-blocks` (Erde, Bruchstein, Netherrack), nur sichtbar mit `additive-only` aus. ARCHITECTURE.md §1/§4/§7
+vorher ergänzt. Build + 243 Tests grün.
+- `PrinterTest` (+4): schwebender Block bekommt Erde darunter, danach den Stein, am Cluster-Ende verschwindet nur die
+  Erde (Log: erst temp, dann nicht temp; `placedCount` = 1); ohne Supports wird nichts gesendet und nichts gebrochen;
+  kein Whitelist-Block im Inventar → kein Stützblock; ein inzwischen fremder Stützblock bleibt stehen.
+- `TempSupportsTest` (4): reservierte Positionen (Block/Luft/unbekannt/außerhalb), nur selbsttragende Ziele
+  (Stein, obere Stufe ja; Fackel, Teppich, Tür, Leiter nein), Position muss frei, geladen und nicht reserviert sein,
+  Reihenfolge der Whitelist.
+- In-game-Test **offen** → TESTLOG (schwebende Blöcke mit `additive-only` aus und `temp-supports` an).
 ### P5-03 · Fluids `todo` — Bucket vom Nachbarblock, Quellblock-Check, Setting `handleFluids`
 ### P5-04 · Rails `todo` — Reihenfolge gerade→Kurve, Verifier-Gegencheck
 ### P5-05 · Profil FAST `todo` — `blocksPerTick` > 1, `rotationSpoof`, Warnung im Chat beim Aktivieren
@@ -563,6 +585,9 @@ Build + 235 Tests grün.
   müsste er die Cluster anlaufen wie der Printer
 - `.sf undo` liest das Log der **aktuell eingestellten** Schematic; wer das Placement-Setting ändert, undoet ein
   anderes Log
+- `TempSupports`: wird ein Lauf mitten im Cluster gestoppt, bleiben dessen Stützblöcke stehen. Sie stehen mit `temp=true`
+  im Log; ein gezieltes „nur temp-Blöcke abräumen“ (`.sf undo temp`) gibt es noch nicht
+- P5-02 in-game nachholen: schwebende Blöcke / obere Stufen ohne Träger mit `additive-only` aus und `temp-supports` an
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)
