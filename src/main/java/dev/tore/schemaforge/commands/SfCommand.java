@@ -22,6 +22,7 @@ public final class SfCommand extends Command {
         builder.then(ControlCommands.resume());
         builder.then(ControlCommands.stop());
         builder.then(StatusCommand.build());
+        builder.then(ContainersCommand.build());
         builder.then(DebugCommands.build());
     }
 }

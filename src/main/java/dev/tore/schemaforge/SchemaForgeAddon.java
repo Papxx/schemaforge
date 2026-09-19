@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import dev.tore.schemaforge.commands.SfCommand;
 import dev.tore.schemaforge.hud.BuildProgressHud;
 import dev.tore.schemaforge.modules.BuildResume;
+import dev.tore.schemaforge.modules.ContainerRestock;
 import dev.tore.schemaforge.modules.SchemaPrinter;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -17,8 +18,8 @@ import org.slf4j.Logger;
 /**
  * Addon entry point. Holds the shared logger, module category and HUD group.
  * Modules, commands and HUD elements are registered by the tickets that implement them
- * (SfCommand: P0-05, SchemaPrinter: P2-07, BuildResume: P3-04 and BuildProgressHud: P3-05 – registered,
- * ContainerRestock: P4-04), so no unfinished shell is reachable in-game.
+ * (SfCommand: P0-05, SchemaPrinter: P2-07, BuildResume: P3-04, BuildProgressHud: P3-05 and
+ * ContainerRestock: P4-02 – all registered), so no unfinished shell is reachable in-game.
  */
 public class SchemaForgeAddon extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
@@ -32,6 +33,7 @@ public class SchemaForgeAddon extends MeteorAddon {
         Commands.add(new SfCommand());
         Modules.get().add(new SchemaPrinter());
         Modules.get().add(new BuildResume());
+        Modules.get().add(new ContainerRestock());
         Hud.get().register(BuildProgressHud.INFO);
     }
 

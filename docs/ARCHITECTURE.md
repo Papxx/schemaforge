@@ -32,7 +32,9 @@ dev.tore.schemaforge
 │   ├── SafetyMonitor                Gründe für eine automatische Pause (P3-03)
 │   ├── MaterialManager              Bedarf, Hotbar-Swap, Restock-Trigger
 │   ├── HotbarSlots                  erlaubte Hotbar-Slots aus Setting-Text „2-8“ (P2-05)
-│   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz
+│   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz (P4-01)
+│   ├── ContainerKey                 Doppelkisten-Hälfte, Enderkisten-Sentinel, Dateiname (P4-02)
+│   ├── ContainerReport              Text von .sf containers als Zeilenliste (P4-02)
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
@@ -397,6 +399,22 @@ public final record BuildCheckpoint(int v, int clusterIndex, int placedCount, lo
 // P3-04. PlanConfig.fingerprint(): kanonischer Text aus sortierten Registry-Namen – Block.hashCode ist
 //  identitätsbasiert und würde nach jedem Spielstart einen anderen Hash ergeben.
 
+// P4-02. Wie ein Container im Index adressiert wird.
+public final class ContainerKey {
+    public static final BlockPos ENDER_CHEST;                        // Sentinel y = Integer.MIN_VALUE: kein echter Block
+    public static final String LOCAL = "local";                      // Welt ohne Server
+    public static BlockPos canonical(BlockPos a, Optional<BlockPos> other);   // Doppelkiste: kleinstes x, dann y, dann z
+    public static String fileName(String serverHash, String dimension);       // containers-<hash>-<dim>.json
+    public static String serverHash(Optional<String> address);       // SHA-256, 4 Byte hex; nie die rohe Adresse
+}
+
+// P4-02. Zeilen von .sf containers; Farben liegen in commands/ContainersCommand.
+public final class ContainerReport {
+    public static final int MAX_CONTAINERS = 20; public static final int ITEMS_PER_CONTAINER = 4;
+    public static List<String> lines(List<ContainerIndex.Entry> entries, Vec3 from, boolean running);
+    public static String describe(ContainerIndex.Entry entry, Vec3 from);
+}
+
 // P4-01. Merkt sich nur, was gesehen wurde; Container öffnen und füllen ist P4-02/P4-03. Nur Client-Thread.
 public final class ContainerIndex {
     public record Entry(BlockPos pos, ContainerType type, long lastSeenEpochMs, Map<Item,Integer> items, boolean stale) {
@@ -545,6 +563,7 @@ setzt dort fort, ein zweites `.sf start` verwirft ihn und fängt von vorn an.
 .sf debug goto <x> <y> <z>   .sf debug stopgoto      (P3-01, intern)
 .sf status              .sf preview [placement]
 .sf verify              .sf materials
+P4-02: `.sf containers` listet den Index (nächste zuerst, stale zuletzt, je Container die vier größten Item-Sorten).
 .sf restock [item]      .sf scan [radius]      .sf containers
 .sf undo <n>            .sf doctor
 ```

@@ -333,11 +333,34 @@ Build + 183 Tests grün.
 - Der Dateiname `containers-<serverHash>-<dimension>.json` wird erst mit P4-02 gebildet; der Index selbst kennt nur
   den Pfad, den er bekommt.
 
-### P4-02 · Passives Lernen `todo`
+### P4-02 · Passives Lernen `done`
 Listener auf Container-Screen open/close (Meteor-Event oder eigener Hook – Vorbild: Auto-Steal in `InventoryTweaks` erkennt den Container über `InventoryEvent` + `containerMenu.getType()`, siehe `docs/NOTES-meteor-api.md` Punkt 5); Container-Position aus letztem Rechtsklick-Ziel; Inhalt beim Schließen in Index.
 - AK1 Manuell: 3 Kisten manuell öffnen → `.sf containers` listet alle 3 mit korrekten Mengen
 - AK2 Doppelkiste → eine Position, alle 54 Slots gezählt
 - AK3 Ender-Chest → Typ `ender_chest`, positionsunabhängig
+
+Stand 2026-09-19: Modul `ContainerRestock` (Settings `learn-passively`, `stale-after-hours` Default 24) hängt an
+`InventoryEvent` (wie Auto-Steal: `packet.containerId() == containerMenu.containerId`, eigenes Inventar-Menü
+ausgenommen) und an `InteractBlockEvent` für die Position – der Screen selbst sagt nicht, wo der Container steht,
+deshalb gilt der letzte Rechtsklick, solange er höchstens 40 Ticks her ist. Gelernt wird **beim Eintreffen des
+Inhalts**, nicht beim Schließen: das Paket ist der einzige Zeitpunkt, an dem der Inhalt sicher vollständig ist.
+Gezählt werden `menu.slots` ohne die letzten 36 (Spielerinventar) – damit stimmt die Zahl für jede Containergröße,
+auch für die 54 Slots einer Doppelkiste (AK2). Doppelkisten werden über `ChestBlock.getConnectedBlockPos` auf **eine**
+Hälfte normiert (`ContainerKey.canonical`, kleinstes x/y/z), Enderkisten auf einen Sentinel mit
+y = `Integer.MIN_VALUE`, den kein echter Block haben kann (AK3, positionsunabhängig). Persistenz je Welt:
+`containers-<serverHash>-<dimension>.json`, der Hash sind 4 Byte SHA-256 der Serveradresse – die rohe Adresse landet
+nie im Dateinamen. Geladen beim Aktivieren bzw. beim ersten Tick mit Welt, gespeichert beim Deaktivieren.
+Neu `.sf containers` (`commands/ContainersCommand` + `core/ContainerReport`). Modul in `SchemaForgeAddon` registriert –
+früher als in der Addon-Notiz geplant (dort stand P4-04), weil passives Lernen sonst nie liefe.
+ARCHITECTURE.md §1/§4/§8 vorher ergänzt. Build + 197 Tests grün.
+- **Beim Testen gefunden und behoben:** `fileName` ersetzte Sonderzeichen vor der Leer-Prüfung, dadurch wurde aus einem
+  leeren Dimensionsnamen `_` statt `unknown` – der Fallback war toter Code.
+- `ContainerKeyTest` (7): beide Hälften einer Doppelkiste ergeben denselben Eintrag, Ordnung über alle drei Achsen,
+  Einzelkiste, Sentinel liegt unter jeder Welt, Dateiname enthält nur den Hash, gleiche Adresse → gleicher Hash,
+  ohne Server `local`, kaputte Dimensionsnamen können nicht aus dem Dateinamen ausbrechen.
+- `ContainerReportTest` (6): leerer Index (mit Hinweis, wenn das Modul aus ist), Sortierung nächste zuerst mit stale
+  zuletzt, Enderkiste ohne Sentinel-Position, vier Item-Sorten plus „+n more", leerer Container, lange Liste gekürzt.
+- AK1/AK2/AK3 **offen**: alle drei sind In-game-AKs → TESTLOG.
 
 ### P4-03 · `.sf scan [radius]` `todo`
 Container-BlockEntities im Radius aus geladenen Chunks; nacheinander anlaufen (Navigator), öffnen, lernen, schließen; Budget für Öffnungen (1 pro 10 Ticks).
@@ -428,6 +451,12 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
   zu pessimistisch. Ggf. gleitendes Mittel der letzten Minute
 - P4-01: `ContainerIndex` ist gebaut, aber noch nirgends angeschlossen – Dateiname (`containers-<serverHash>-<dimension>`),
   Laden beim Welt-Beitritt und Speichern beim Verlassen kommen mit P4-02
+- P4-02 AK1/AK2/AK3 in-game nachholen: 3 Kisten öffnen → `.sf containers`; Doppelkiste → ein Eintrag mit 54 Slots;
+  Enderkiste → Typ `ender_chest`. Dabei prüfen, ob der 40-Tick-Merker für den Rechtsklick in der Praxis reicht
+- `ContainerRestock`: die Position kommt aus dem letzten Rechtsklick. Öffnet etwas anderes einen Container-Screen
+  (Kommandoblock, Plugin-GUI, Minecart mit Kiste), wird die Position falsch zugeordnet – Menütyp wird noch nicht geprüft
+- `ContainerRestock`: der Index wird beim Deaktivieren gespeichert, nicht beim Verlassen der Welt. Stürzt das Spiel ab,
+  ist das Gelernte weg
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)
