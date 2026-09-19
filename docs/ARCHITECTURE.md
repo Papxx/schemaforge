@@ -453,11 +453,27 @@ public final class ContainerIndex {
     //   geloggt, statt die ganze Datei zu verwerfen.
 }
 
+// P4-04. Holt fehlende Items aus bekannten Containern; kennt keine Minecraft-Screens (Actions-Interface).
+// Jeder Klick geht durch das ActionBudget (Regel 7).
 public final class RestockProcess {
-    public enum State { IDLE, PICK_SOURCE, TRAVEL, OPEN, WAIT_SCREEN, TAKE, CLOSE, RETURN, FAILED }   // public: state() ist public (P0-04)
-    public void start(Map<Item,Integer> demand);
-    public void tick();
-    public State state();
+    public enum State { IDLE, PICK_SOURCE, TRAVEL, OPEN, WAIT_SCREEN, TAKE, CLOSE, RETURN, FAILED }
+    public interface Actions {
+        void open(BlockPos pos); void close(); boolean screenOpen();
+        Map<Item,Integer> openContents();                            // leer ohne offenen Container
+        boolean take(Item item); boolean store(Item item);           // je ein Shift-Klick
+    }
+    public record Config(int screenTimeoutTicks, List<Item> trash) { static Config defaults(); }   // 60 / leer
+    public RestockProcess(ContainerIndex index, Navigator navigator, Actions actions, ActionBudget budget,
+                          Config config, Consumer<String> notes);
+    public void start(Map<Item,Integer> demand, BlockPos returnTo);  // returnTo darf null sein
+    public void tick(PlayerView player, InventoryView inv);
+    public boolean running(); public State state();
+    public Map<Item,Integer> missing(); public int takenCount(); public void cancel();
+    // PICK_SOURCE: nächste nicht besuchte Quelle aus dem Index, stale zuletzt; keine → FAILED mit Meldung.
+    // WAIT_SCREEN: der echte Inhalt wird in den Index geschrieben (der Index ist Daten, keine Anweisung) – eine
+    //   inzwischen leere Kiste korrigiert sich damit selbst und wird in diesem Lauf nicht erneut geöffnet (AK2).
+    // TAKE: wie viel ankam, wird aus dem Inventar zurückgelesen, nicht aus der Stapelgröße geraten.
+    // Inventar voll → ein Item der Müll-Liste zurücklegen; ohne Müll-Liste FAILED, es wird nie etwas fallen gelassen (AK3).
 }
 ```
 
@@ -498,6 +514,8 @@ public final class BuildSession {
     public boolean resume();                                         // PAUSED → Zustand davor; false sonst
     public State state();
     public Status status();
+    public Map<Item,Integer> upcomingDemand(int count);               // P4-04: Bedarf der nächsten n Cluster
+    public Optional<BlockPos> currentClusterCentre();                 // P4-04: Rückweg des Restock
     // P3-03: vor jedem Schritt eines laufenden Laufs safety.check(view, Chunk des aktuellen Clusters geladen,
     //   printer.outOfMaterials(inv)) → Treffer: pause() + Meldung über notes. In PAUSED wird nur geprüft, ob der Grund
     //   weg ist (autoResume) und dann fortgesetzt; .sf resume löscht den Grund ebenfalls.
@@ -569,6 +587,9 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 | Placement | rotationSpoof | bool | false |
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
 | Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P3-03; Radius 0 schaltet die Spielerprüfung ab
+
+Modul `ContainerRestock` (P4-02/P4-03/P4-04): `learn-passively` true · `lookahead-clusters` 3 · `clicks-per-tick` 2 ·
+`trash` (ItemList, leer) · `stale-after-hours` 24.
 | Debug | logStateChanges / renderClusters | bool / bool | false / true |  ← P2-07: nur logStateChanges; renderClusters ohne Ticket (Backlog)
 
 ## 8. Commands
@@ -582,6 +603,7 @@ setzt dort fort, ein zweites `.sf start` verwirft ihn und fängt von vorn an.
 .sf verify              .sf materials
 P4-02: `.sf containers` listet den Index (nächste zuerst, stale zuletzt, je Container die vier größten Item-Sorten).
 P4-03: `.sf scan [radius]` (Default 32, 1–128) läuft die Container in geladenen Chunks ab; `.sf scan stop` bricht ab.
+P4-04: Der Restock hat keinen eigenen Befehl – er läuft von allein, während der Bau mit NO_MATERIALS pausiert.
 .sf restock [item]      .sf scan [radius]      .sf containers
 .sf undo <n>            .sf doctor
 ```

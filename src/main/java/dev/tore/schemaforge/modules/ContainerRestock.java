@@ -6,7 +6,11 @@ import dev.tore.schemaforge.core.ContainerIndex;
 import dev.tore.schemaforge.core.ContainerKey;
 import dev.tore.schemaforge.core.ContainerType;
 import dev.tore.schemaforge.core.Navigator;
+import dev.tore.schemaforge.core.ActionBudget;
+import dev.tore.schemaforge.core.RestockProcess;
 import dev.tore.schemaforge.core.ScanSession;
+import dev.tore.schemaforge.core.view.InventoryView;
+import dev.tore.schemaforge.compat.McInventoryView;
 import dev.tore.schemaforge.compat.BaritoneBridge;
 import dev.tore.schemaforge.compat.McPlayerView;
 import meteordevelopment.meteorclient.MeteorClient;
@@ -15,9 +19,11 @@ import meteordevelopment.meteorclient.events.packets.InventoryEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.IntSetting;
+import meteordevelopment.meteorclient.settings.ItemListSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -66,6 +72,27 @@ public final class ContainerRestock extends Module {
         .defaultValue(true)
         .build());
 
+    private final Setting<Integer> lookaheadClusters = sgGeneral.add(new IntSetting.Builder()
+        .name("lookahead-clusters")
+        .description("How many upcoming clusters the restock fetches material for.")
+        .defaultValue(3)
+        .range(1, 20)
+        .sliderRange(1, 10)
+        .build());
+
+    private final Setting<Integer> clicksPerTick = sgGeneral.add(new IntSetting.Builder()
+        .name("clicks-per-tick")
+        .description("Container clicks per tick; the same pacing idea as the printer's blocks per tick.")
+        .defaultValue(2)
+        .range(1, 8)
+        .sliderRange(1, 4)
+        .build());
+
+    private final Setting<List<Item>> trash = sgGeneral.add(new ItemListSetting.Builder()
+        .name("trash")
+        .description("Items that may be put back into the container to make room; empty means the restock fails instead.")
+        .build());
+
     private final Setting<Integer> staleAfterHours = sgGeneral.add(new IntSetting.Builder()
         .name("stale-after-hours")
         .description("Entries older than this are used last and scanned again first.")
@@ -82,6 +109,9 @@ public final class ContainerRestock extends Module {
     private int tick;
     /** Running {@code .sf scan}, if any (P4-03). */
     private Optional<ScanSession> scan = Optional.empty();
+    /** Running restock, if any (P4-04). */
+    private Optional<RestockProcess> restock = Optional.empty();
+    private final ActionBudget clickBudget = new ActionBudget(clicksPerTick::get);
     /** Containers learned during the running scan, so the session knows when a visit worked. */
     private final Set<BlockPos> learnedByScan = new LinkedHashSet<>();
 
@@ -98,6 +128,7 @@ public final class ContainerRestock extends Module {
     public void onDeactivate() {
         saveIndex();
         cancelScan();
+        cancelRestock();
         lastInteracted = null;
     }
 
@@ -120,7 +151,110 @@ public final class ContainerRestock extends Module {
         tick++;
         // The file name needs the world, which is only known once one is joined.
         if (indexFile.isEmpty()) loadIndex();
+        clickBudget.resetTick();
         tickScan();
+        tickRestock();
+    }
+
+    public int lookaheadClusters() {
+        return lookaheadClusters.get();
+    }
+
+    /**
+     * Starts fetching {@code demand}; false if a restock or a scan is already going on (P4-04).
+     * {@code returnTo} is walked back to once everything is found.
+     */
+    public boolean startRestock(Map<Item, Integer> demand, BlockPos returnTo, Consumer<String> notes) {
+        if (mc.player == null) return false;
+        if (restock.map(RestockProcess::running).orElse(false)) return false;
+        if (scan.isPresent()) return false;
+        RestockProcess process = new RestockProcess(index,
+            new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis), new RestockActions(),
+            clickBudget, new RestockProcess.Config(60, List.copyOf(trash.get())), notes);
+        restock = Optional.of(process);
+        process.start(demand, returnTo);
+        return process.running();
+    }
+
+    public Optional<RestockProcess> restock() {
+        return restock;
+    }
+
+    public void cancelRestock() {
+        restock.ifPresent(RestockProcess::cancel);
+        restock = Optional.empty();
+    }
+
+    private void tickRestock() {
+        if (restock.isEmpty() || mc.player == null) return;
+        RestockProcess process = restock.get();
+        if (!process.running()) {
+            saveIndex();
+            restock = Optional.empty();
+            return;
+        }
+        process.tick(new McPlayerView(mc.player, 4.5), new McInventoryView(mc.player));
+    }
+
+    /** The screen side of a restock: open, quick-move stacks, close. */
+    private final class RestockActions implements RestockProcess.Actions {
+        @Override
+        public void open(BlockPos pos) {
+            openContainer(pos);
+        }
+
+        @Override
+        public void close() {
+            if (mc.player != null) mc.player.closeContainer();
+        }
+
+        @Override
+        public boolean screenOpen() {
+            return mc.player != null && mc.player.containerMenu != mc.player.inventoryMenu;
+        }
+
+        @Override
+        public Map<Item, Integer> openContents() {
+            if (!screenOpen()) return Map.of();
+            return contentsOf(mc.player.containerMenu);
+        }
+
+        /** Shift-click the first matching stack out of the container half of the menu. */
+        @Override
+        public boolean take(Item item) {
+            return quickMove(item, true);
+        }
+
+        /** Shift-click the first matching stack out of the player half back into the container. */
+        @Override
+        public boolean store(Item item) {
+            return quickMove(item, false);
+        }
+
+        private boolean quickMove(Item item, boolean fromContainer) {
+            if (!screenOpen() || mc.player == null) return false;
+            AbstractContainerMenu menu = mc.player.containerMenu;
+            int containerSlots = menu.slots.size() - PLAYER_SLOTS;
+            int first = fromContainer ? 0 : containerSlots;
+            int last = fromContainer ? containerSlots : menu.slots.size();
+            for (int i = first; i < last; i++) {
+                ItemStack stack = menu.slots.get(i).getItem();
+                if (stack.isEmpty() || stack.getItem() != item) continue;
+                InvUtils.shiftClick().slotId(i);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    /** One right-click on a container; the position is remembered so the contents can be attributed to it. */
+    private void openContainer(BlockPos pos) {
+        if (mc.player == null || mc.gameMode == null) return;
+        BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
+        lastInteracted = pos.immutable();
+        lastInteractedAt = tick;
+        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+        mc.player.swing(InteractionHand.MAIN_HAND);
     }
 
     /** Containers with a block entity in loaded chunks around the player (P4-03). */
@@ -186,13 +320,7 @@ public final class ContainerRestock extends Module {
     private final class ScanActions implements ScanSession.Actions {
         @Override
         public void open(BlockPos pos) {
-            if (mc.player == null || mc.gameMode == null) return;
-            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
-            // Set directly rather than relying on the interact event firing for our own call.
-            lastInteracted = pos.immutable();
-            lastInteractedAt = tick;
-            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
-            mc.player.swing(InteractionHand.MAIN_HAND);
+            openContainer(pos);
         }
 
         @Override

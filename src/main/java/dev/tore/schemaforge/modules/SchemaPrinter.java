@@ -18,6 +18,7 @@ import dev.tore.schemaforge.core.Navigator;
 import dev.tore.schemaforge.core.PlacementLog;
 import dev.tore.schemaforge.core.PlacementSolver;
 import dev.tore.schemaforge.core.PlanConfig;
+import dev.tore.schemaforge.core.RestockProcess;
 import dev.tore.schemaforge.core.SafetyMonitor;
 import dev.tore.schemaforge.core.Printer;
 import dev.tore.schemaforge.core.SchematicSnapshot;
@@ -280,6 +281,7 @@ public final class SchemaPrinter extends Module {
 
     @Override
     public void onDeactivate() {
+        Modules.get().get(ContainerRestock.class).cancelRestock();
         session.map(BuildSession::status).ifPresent(status -> lastStatus = Optional.of(status));
         // A checkpoint on stop as well, so a deliberate .sf stop can be picked up too (P3-04).
         session.ifPresent(run -> saveCheckpoint(run.status()));
@@ -371,6 +373,7 @@ public final class SchemaPrinter extends Module {
             finish(run);
             return;
         }
+        restockIfOutOfMaterials(run);
         forgetShortagesOfFinishedCluster(run);
         checkpointIfDue(run);
     }
@@ -417,6 +420,27 @@ public final class SchemaPrinter extends Module {
     /** Makes the next activation continue at {@code clusterIndex} (0-based) instead of the first cluster (P3-04). */
     public void resumeFrom(int clusterIndex) {
         resumeFromCluster = Math.max(0, clusterIndex);
+    }
+
+    /**
+     * Fetches material while the build waits for it (P4-04, milestone M4).
+     * The safety stop already paused the run with NO_MATERIALS and continues on its own once the items are
+     * back, so the restock only has to fill the inventory - it never resumes the build itself.
+     */
+    private void restockIfOutOfMaterials(BuildSession run) {
+        boolean waitingForMaterial = run.safetyPause()
+            .filter(trigger -> trigger.reason() == SafetyMonitor.Reason.NO_MATERIALS).isPresent();
+        if (!waitingForMaterial) return;
+
+        ContainerRestock restock = Modules.get().get(ContainerRestock.class);
+        if (!restock.isActive() || restock.restock().map(RestockProcess::running).orElse(false)) return;
+
+        Map<Item, Integer> demand = run.upcomingDemand(restock.lookaheadClusters());
+        if (demand.isEmpty()) return;
+        if (restock.startRestock(demand, run.currentClusterCentre().orElse(null), note -> warning("%s", note))) {
+            info("Out of material, fetching %d item type%s from the container index.",
+                demand.size(), demand.size() == 1 ? "" : "s");
+        }
     }
 
     /** What is missing for the cluster being worked on right now (P3-05). */

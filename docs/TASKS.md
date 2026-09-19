@@ -386,11 +386,37 @@ Default-Radius 32, 1–128). ARCHITECTURE.md §1/§4/§8 vorher ergänzt. Build 
   übersprungen und der Scan läuft weiter, Abbruch gibt Pfad und Screen zurück, leere Liste ist sofort fertig.
 - AK1 **offen**: In-game-AK (6 Kisten, Dauer < 2 min) → TESTLOG.
 
-### P4-04 · `RestockProcess` `todo`
+### P4-04 · `RestockProcess` `done`
 State-Machine laut ARCHITECTURE.md; Entnahme nur Bedarf der nächsten N Cluster (Setting `lookaheadClusters`, Default 3); Klicks über `ActionBudget` (Default 2/Tick); Screen-Timeout 60 Ticks; Inventar voll → Müll-Liste ablegen, sonst FAILED mit Meldung; Index nach Entnahme korrigieren.
 - AK1 Manuell: Inventar leer, Lager mit 6 Kisten → Bau startet, holt, baut weiter ohne Eingriff (Meilenstein M4)
 - AK2 Manuell: Kiste im Index inzwischen leer → nächste Quelle, Index korrigiert, kein Endlos-Öffnen
 - AK3 Manuell: Inventar voll, Müll-Liste leer → FAILED + Meldung, kein Item-Verlust
+
+Stand 2026-09-19: `core/RestockProcess` als Zustandsmaschine mit den Namen aus §4
+(PICK_SOURCE → TRAVEL → OPEN → WAIT_SCREEN → TAKE → CLOSE → RETURN), gegen ein `Actions`-Interface programmiert und
+damit ohne Minecraft testbar. Quellenwahl über `ContainerIndex.sourcesFor` (nächste zuerst, stale zuletzt), jeder
+Container wird pro Lauf höchstens **einmal** geöffnet. Beim Öffnen wird der **echte** Inhalt in den Index geschrieben –
+damit korrigiert sich eine inzwischen leere Kiste selbst und der Lauf geht zur nächsten Quelle (AK2). Alle Klicks
+(Öffnen, Entnehmen, Zurücklegen, Schließen) laufen über das `ActionBudget` mit `clicks-per-tick` (Default 2).
+Inventar voll → ein Item der Müll-Liste **zurück in den Container**, nie auf den Boden; ist die Liste leer, endet der
+Lauf mit FAILED und einer Meldung, ohne dass etwas verloren geht (AK3).
+- **Bewusst anders als geplant:** wie viel angekommen ist, wird aus dem Inventar zurückgelesen statt aus
+  `getDefaultMaxStackSize()` geraten. Der Client aktualisiert sein Inventar beim Klick sofort, und eine geratene
+  Stapelgröße wäre für jedes Item mit 16er-Stapeln falsch. (Die Stapelgröße ist im Unit-Test ohnehin nicht abrufbar –
+  `Components not bound yet`, dieselbe Grenze wie bei `ItemStack` in P2-05.)
+- Anbindung an den Bau (AK1/M4): der Sicherheitsstopp pausiert den Lauf ohnehin mit NO_MATERIALS und setzt von allein
+  fort, sobald die Items da sind. Der `SchemaPrinter` startet deshalb in genau dieser Pause einen Restock mit dem
+  Bedarf der nächsten `lookahead-clusters` Cluster (`BuildSession.upcomingDemand`) und dem aktuellen Cluster als
+  Rückweg. **Der Zustand RESTOCKING in `BuildSession` bleibt damit unbenutzt** – der Ablauf ist derselbe wie in §5
+  beschrieben, liegt aber im PAUSED-Zweig; so muss der Zustandsautomat den Restock nicht kennen.
+- Im Modul: `RestockActions` öffnet per `useItemOn` und verschiebt Stapel per `InvUtils.shiftClick().slotId(i)`,
+  getrennt nach Container- und Spielerhälfte des Menüs. Neue Settings `lookahead-clusters` (3), `clicks-per-tick` (2)
+  und `trash` (ItemList, leer). ARCHITECTURE.md §4/§5/§7/§8 vorher ergänzt. Build + 214 Tests grün.
+- `RestockProcessTest` (9): nächste Quelle wird angelaufen und geleert, leere Kiste korrigiert den Index und die
+  nächste Quelle wird genommen (AK2), dieselbe Kiste wird nie zweimal geöffnet, ohne Quelle FAILED mit Meldung,
+  volles Inventar legt Müll zurück, volles Inventar ohne Müll-Liste → FAILED ohne etwas wegzuwerfen (AK3), was das
+  Inventar schon hat wird nicht geholt, Klicks laufen durchs Budget, Abbruch gibt Pfad und Screen zurück.
+- AK1/AK2/AK3 **offen** als In-game-Tests → TESTLOG; die Unit-Tests decken AK2 und AK3 logisch ab.
 
 ### P4-05 · Shulker im Inventar (Option) `todo`
 Nur wenn `useInventoryShulkers`. Platzieren → öffnen → entnehmen → abbauen → aufnehmen.
@@ -481,6 +507,12 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
   zwischen zwei Öffnungen und 60 Ticks Screen-Timeout in der Praxis passen
 - `ScanSession`: der Scan öffnet nur, was in geladenen Chunks ein Block-Entity hat – Kisten hinter der Renderdistanz
   findet er nicht. Ein Lauf über größere Lager braucht mehrere Scans von verschiedenen Standorten
+- P4-04 AK1 in-game nachholen (Meilenstein M4): Inventar leer, Lager mit 6 Kisten → Bau startet, holt, baut weiter
+  ohne Eingriff. Dabei AK2 (leere Kiste) und AK3 (volles Inventar ohne Müll-Liste) gegenprüfen
+- `RestockProcess`: `BuildSession.State.RESTOCKING` existiert, wird aber nicht betreten – der Restock läuft im
+  PAUSED-Zweig. Entweder den Zustand nutzen oder ihn aus §5 streichen
+- `RestockProcess`: die Müll-Liste legt in **denselben** Container zurück; ist der voll, hilft das nicht. PLAN 3.4
+  nennt als ersten Schritt Wegwerfen nach Liste, das gibt es bewusst nicht (kein Item-Verlust)
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

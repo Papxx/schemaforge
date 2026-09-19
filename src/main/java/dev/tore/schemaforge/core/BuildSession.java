@@ -6,10 +6,13 @@ import dev.tore.schemaforge.core.view.PrintActions;
 import dev.tore.schemaforge.core.view.SafetyView;
 import dev.tore.schemaforge.core.view.WorldView;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -148,6 +151,29 @@ public final class BuildSession {
 
     public State state() {
         return state;
+    }
+
+    /**
+     * Item demand of the next {@code count} clusters, for the restock (P4-04).
+     * Counted from the cluster being worked on, so what is already placed is not fetched again.
+     */
+    public Map<Item, Integer> upcomingDemand(int count) {
+        Map<Item, Integer> demand = new LinkedHashMap<>();
+        int from = Math.max(0, current);
+        for (int i = from; i < Math.min(from + count, clusters.size()); i++) {
+            for (BlockTask task : clusters.get(i).tasks()) {
+                if (task.kind() != TaskKind.PLACE && task.kind() != TaskKind.FLUID) continue;
+                for (MaterialRules.Requirement requirement : MaterialRules.required(task.target())) {
+                    demand.merge(requirement.item(), requirement.count(), Integer::sum);
+                }
+            }
+        }
+        return demand;
+    }
+
+    /** Where the build is working right now, so the restock can walk back to it. */
+    public Optional<BlockPos> currentClusterCentre() {
+        return current >= 0 && current < clusters.size() ? Optional.of(clusters.get(current).center()) : Optional.empty();
     }
 
     /** The safety stop that paused the build; empty while running or after a manual pause (P3-03). */
