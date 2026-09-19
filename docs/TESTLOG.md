@@ -41,3 +41,4 @@
 | 2026-09-19 | P5-04 | NICHT GETESTET (in-game) | Nur Unit-Tests (`PlacementSolverTest` +4, `WorkPlannerTest` +1, `PrinterTest` +2), 258 grün. In-game (Schienenstrecke mit Kurven und Steigung, Gegencheck-Meldungen) steht aus → Backlog |
 | 2026-09-19 | P5-05 | NICHT GETESTET (in-game) | Nur Unit-Tests (`PacingProfileTest` 4), 262 grün. In-game (FAST auf lokalem Paper: Blöcke/min, Ghost-Blocks, Warnung im Chat) steht aus → Backlog |
 | 2026-09-19 | P5-06 | NICHT GETESTET (in-game) | Nur Unit-Tests (`AccuratePlacementTest` 9, `PlacementSolverTest` +3), 274 grün. Braucht einen Server mit Carpet `accurateBlockPlacement` (V2) bzw. Servux (V3) → Backlog |
+| 2026-09-19 | P5-07 | OK (lokal) | Frischer Klon ohne `refs/`/`run/`: `./gradlew build` grün, 275 Tests, Jar mit `LICENSE_schemaforge`, ohne Litematica-/Baritone-Klassen. GitHub-Actions-Lauf steht bis zum nächsten Push aus |

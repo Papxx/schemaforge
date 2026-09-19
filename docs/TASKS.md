@@ -585,7 +585,24 @@ Chat-Zeile beim Start. `Printer.Options.protocol` (Zusatzkonstruktor ohne Protok
   Stein bleibt unkodiert; Tür unter V2 mit echter Rotation.
 - In-game-Test **offen** → TESTLOG: braucht einen Server mit Carpet (`accurateBlockPlacement true`) bzw. Servux; auf einem
   Vanilla-Server meldet Litematica kein V2/V3 und es ändert sich nichts.
-### P5-07 · Release `in_progress` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
+### P5-07 · Release `done` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
+
+Stand 2026-09-19:
+- **README** neu auf Englisch für GitHub: Funktionen aller Phasen, Voraussetzungen, Installation, Schnellstart, alle
+  `.sf`-Befehle, Module und wichtigste Settings, Hinweise für Server (additive-only, Profile, Accurate Placement),
+  geschriebene Dateien, Bauen aus dem Quellcode, Lizenz und Herkunft. Der Beta-Status steht oben mit der Liste dessen,
+  was schon im Spiel geprüft ist (TESTLOG) und was nicht. Die frühere Arbeitspaket-Übersicht ist ersetzt, die Doku in
+  `docs/` wird im README verlinkt.
+- **Modrinth-Metadaten:** `fabric.mod.json` mit `homepage`/`sources`/`issues` und neuer Beschreibung; `docs/MODRINTH.md`
+  mit den Feldern der Projektseite (Slug, Kategorien, Umgebung nur Client, Abhängigkeiten required/optional, Lizenz,
+  Changelog des ersten Release). Hochgeladen wird von Hand – für ein automatisches Upload fehlt ein Token in CI.
+- **GPL-Header** (Kurzform der GPL-3.0-Notiz mit `SPDX-License-Identifier: GPL-3.0-only`) in allen 107 Java-Dateien
+  unter `src/`; neu `LicenseHeaderTest` hält das fest. Das Jar enthält `LICENSE_schemaforge` und keine Klassen von
+  Litematica oder Baritone.
+- **CI:** `dev_build.yml` baut mit `./gradlew build` auf Ubuntu (Temurin 25). Nachgestellt mit einem frischen Klon des
+  Repos (ohne `refs/`, `run/`, lokale Dateien): Build + 275 Tests grün, `gradlew` ist ausführbar (100755). Der echte
+  GitHub-Lauf passiert erst beim nächsten Push – **nicht gepusht**, das entscheidet der Nutzer.
+- Version bleibt `0.1.0` (`libs.versions.toml`).
 
 ---
 
@@ -690,6 +707,8 @@ Chat-Zeile beim Start. `Printer.Options.protocol` (Zusatzkonstruktor ohne Protok
   Treffer-Entfernung ablehnt
 - `AccuratePlacement`: unter V3 könnten auch Kurvenschienen, offene Türen/Falltüren (`open`) und Doppelstufen direkt
   kodiert werden – bisher kodiert der Solver nur, wo sonst eine echte Rotation nötig wäre
+- P5-07: nach dem Push prüfen, dass `dev_build.yml` auf GitHub grün ist und das `snapshot`-Release das Jar enthält;
+  danach Modrinth-Projekt nach `docs/MODRINTH.md` anlegen
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)
