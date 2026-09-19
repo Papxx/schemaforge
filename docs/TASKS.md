@@ -418,11 +418,11 @@ Lauf mit FAILED und einer Meldung, ohne dass etwas verloren geht (AK3).
   Inventar schon hat wird nicht geholt, Klicks laufen durchs Budget, Abbruch gibt Pfad und Screen zurück.
 - AK1/AK2/AK3 **offen** als In-game-Tests → TESTLOG; die Unit-Tests decken AK2 und AK3 logisch ab.
 
-### P4-05 · Shulker im Inventar (Option) `todo`
+### P4-05 · Shulker im Inventar (Option) `in_progress`
 Nur wenn `useInventoryShulkers`. Platzieren → öffnen → entnehmen → abbauen → aufnehmen.
 - AK1 Manuell: Ablauf funktioniert; Shulker landet wieder im Inventar; bei `additiveOnly` erlaubt (eigener temp-Block)
 
-### P4-06 · `.sf materials` Vier-Spalten `todo`
+### P4-06 · `.sf materials` Vier-Spalten `in_progress`
 Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - AK1 Manuell: Zahlen stimmen mit Preview + `.sf containers` überein
 

@@ -9,6 +9,7 @@ import dev.tore.schemaforge.core.Navigator;
 import dev.tore.schemaforge.core.ActionBudget;
 import dev.tore.schemaforge.core.RestockProcess;
 import dev.tore.schemaforge.core.ScanSession;
+import dev.tore.schemaforge.core.ShulkerProcess;
 import dev.tore.schemaforge.core.view.InventoryView;
 import dev.tore.schemaforge.compat.McInventoryView;
 import dev.tore.schemaforge.compat.BaritoneBridge;
@@ -23,7 +24,9 @@ import meteordevelopment.meteorclient.settings.ItemListSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
+import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -38,6 +41,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.EnderChestBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 
@@ -93,6 +97,12 @@ public final class ContainerRestock extends Module {
         .description("Items that may be put back into the container to make room; empty means the restock fails instead.")
         .build());
 
+    private final Setting<Boolean> useInventoryShulkers = sgGeneral.add(new BoolSetting.Builder()
+        .name("use-inventory-shulkers")
+        .description("Place a carried shulker box to take from it, then break it and pick it up again. Off by default: it looks unusual to anti-cheat.")
+        .defaultValue(false)
+        .build());
+
     private final Setting<Integer> staleAfterHours = sgGeneral.add(new IntSetting.Builder()
         .name("stale-after-hours")
         .description("Entries older than this are used last and scanned again first.")
@@ -111,6 +121,8 @@ public final class ContainerRestock extends Module {
     private Optional<ScanSession> scan = Optional.empty();
     /** Running restock, if any (P4-04). */
     private Optional<RestockProcess> restock = Optional.empty();
+    /** Running shulker flow, if any (P4-05). */
+    private Optional<ShulkerProcess> shulker = Optional.empty();
     private final ActionBudget clickBudget = new ActionBudget(clicksPerTick::get);
     /** Containers learned during the running scan, so the session knows when a visit worked. */
     private final Set<BlockPos> learnedByScan = new LinkedHashSet<>();
@@ -129,6 +141,7 @@ public final class ContainerRestock extends Module {
         saveIndex();
         cancelScan();
         cancelRestock();
+        cancelShulker();
         lastInteracted = null;
     }
 
@@ -153,6 +166,7 @@ public final class ContainerRestock extends Module {
         if (indexFile.isEmpty()) loadIndex();
         clickBudget.resetTick();
         tickScan();
+        tickShulker();
         tickRestock();
     }
 
@@ -167,7 +181,10 @@ public final class ContainerRestock extends Module {
     public boolean startRestock(Map<Item, Integer> demand, BlockPos returnTo, Consumer<String> notes) {
         if (mc.player == null) return false;
         if (restock.map(RestockProcess::running).orElse(false)) return false;
+        if (shulker.map(ShulkerProcess::running).orElse(false)) return false;
         if (scan.isPresent()) return false;
+        // A shulker in the inventory is quicker than any walk, so it is tried first (P4-05).
+        if (startShulker(demand, notes)) return true;
         RestockProcess process = new RestockProcess(index,
             new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis), new RestockActions(),
             clickBudget, new RestockProcess.Config(60, List.copyOf(trash.get())), notes);
@@ -178,6 +195,122 @@ public final class ContainerRestock extends Module {
 
     public Optional<RestockProcess> restock() {
         return restock;
+    }
+
+    public Optional<ShulkerProcess> shulkerRun() {
+        return shulker;
+    }
+
+    public void cancelShulker() {
+        shulker.ifPresent(ShulkerProcess::cancel);
+        shulker = Optional.empty();
+    }
+
+    /** True if a carried shulker box holds something of the demand and the flow was started (P4-05). */
+    private boolean startShulker(Map<Item, Integer> demand, Consumer<String> notes) {
+        if (!useInventoryShulkers.get() || mc.player == null) return false;
+        Optional<Item> box = shulkerWith(demand);
+        if (box.isEmpty()) return false;
+        ShulkerProcess process = new ShulkerProcess(new ShulkerActions(), clickBudget,
+            ShulkerProcess.Config.defaults(), notes);
+        shulker = Optional.of(process);
+        process.start(box.get(), demand);
+        return process.running();
+    }
+
+    /** The first shulker box in the inventory that carries one of the wanted items. */
+    private Optional<Item> shulkerWith(Map<Item, Integer> demand) {
+        McInventoryView inv = new McInventoryView(mc.player);
+        for (Item item : demand.keySet()) {
+            for (ItemStack stack : inv.shulkersContaining(item)) {
+                if (!stack.isEmpty()) return Optional.of(stack.getItem());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void tickShulker() {
+        if (shulker.isEmpty() || mc.player == null) return;
+        ShulkerProcess process = shulker.get();
+        if (!process.running()) {
+            shulker = Optional.empty();
+            return;
+        }
+        process.tick(new McInventoryView(mc.player));
+    }
+
+    /** The game side of the shulker flow; the only place SchemaForge breaks a block, and only its own (rule 6). */
+    private final class ShulkerActions implements ShulkerProcess.Actions {
+        @Override
+        public Optional<BlockPos> freeSpot() {
+            if (mc.player == null || mc.level == null) return Optional.empty();
+            BlockPos feet = mc.player.blockPosition();
+            for (Direction side : Direction.Plane.HORIZONTAL) {
+                BlockPos candidate = feet.relative(side);
+                if (!mc.level.getBlockState(candidate).canBeReplaced()) continue;
+                if (!mc.level.getBlockState(candidate.below()).isSolidRender()) continue;
+                // A shulker needs the space above it to open.
+                if (!mc.level.getBlockState(candidate.above()).canBeReplaced()) continue;
+                return Optional.of(candidate);
+            }
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean place(BlockPos pos, Item shulkerItem) {
+            FindItemResult found = InvUtils.find(shulkerItem);
+            if (!found.found() || mc.player == null) return false;
+            return BlockUtils.place(pos, found, true, 50, true, true, true);
+        }
+
+        @Override
+        public boolean isShulkerAt(BlockPos pos) {
+            return mc.level != null && mc.level.getBlockState(pos).getBlock() instanceof ShulkerBoxBlock;
+        }
+
+        @Override
+        public void open(BlockPos pos) {
+            openContainer(pos);
+        }
+
+        @Override
+        public void close() {
+            if (mc.player != null) mc.player.closeContainer();
+        }
+
+        @Override
+        public boolean screenOpen() {
+            return mc.player != null && mc.player.containerMenu != mc.player.inventoryMenu;
+        }
+
+        @Override
+        public Map<Item, Integer> openContents() {
+            return screenOpen() ? contentsOf(mc.player.containerMenu) : Map.of();
+        }
+
+        @Override
+        public boolean take(Item item) {
+            if (!screenOpen() || mc.player == null) return false;
+            AbstractContainerMenu menu = mc.player.containerMenu;
+            int containerSlots = menu.slots.size() - PLAYER_SLOTS;
+            for (int i = 0; i < containerSlots; i++) {
+                ItemStack stack = menu.slots.get(i).getItem();
+                if (stack.isEmpty() || stack.getItem() != item) continue;
+                InvUtils.shiftClick().slotId(i);
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean breakBlock(BlockPos pos) {
+            return BlockUtils.breakBlock(pos, true);
+        }
+
+        @Override
+        public boolean isAir(BlockPos pos) {
+            return mc.level != null && mc.level.getBlockState(pos).isAir();
+        }
     }
 
     public void cancelRestock() {
