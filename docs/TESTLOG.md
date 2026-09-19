@@ -31,3 +31,4 @@
 | 2026-09-19 | P4-01 | OK (Unit-Tests) | AK1/AK2 sind Unit-Test-AKs: `ContainerIndexTest` 9, gesamt 183 grün. Roundtrip und Dateiformat (`"v":1`, Item-Registry-Ids, `pos` als `[x,y,z]`) abgedeckt |
 | 2026-09-19 | P3-06 | NICHT AUSGEFÜHRT | Ticket ist ein 30-Minuten-Lauf im Spiel und daher auf `blocked` gesetzt. Vorbereitet: `tools/gen_endurance_schematic.py` + `test/endurance.litematic` (60×60×30, 17 056 Blöcke: 15 664 Stein, 1 392 Bretter). Erzeugt mit demselben litemapy-Setup wie `blockclasses.litematic`, aber nicht gegen Litematicas Parser geprüft |
 | 2026-09-19 | P4-02 | NICHT GETESTET (in-game) | Nur Unit-Tests (`ContainerKeyTest` 7, `ContainerReportTest` 6), 197 grün. AK1 (3 Kisten → `.sf containers`), AK2 (Doppelkiste, 54 Slots) und AK3 (Enderkiste) sind In-game-AKs → Backlog |
+| 2026-09-19 | P4-03 | NICHT GETESTET (in-game) | Nur Unit-Tests (`ScanSessionTest` 8), 205 grün. AK1 (6 Kisten in 20 Blöcken, Dauer < 2 min) ist ein In-game-AK → Backlog |

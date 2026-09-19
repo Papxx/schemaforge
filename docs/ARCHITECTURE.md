@@ -35,6 +35,7 @@ dev.tore.schemaforge
 │   ├── ContainerIndex               gelernte Kisteninhalte + Persistenz (P4-01)
 │   ├── ContainerKey                 Doppelkisten-Hälfte, Enderkisten-Sentinel, Dateiname (P4-02)
 │   ├── ContainerReport              Text von .sf containers als Zeilenliste (P4-02)
+│   ├── ScanSession                  Container der Reihe nach anlaufen, öffnen, lernen (P4-03)
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
@@ -399,6 +400,22 @@ public final record BuildCheckpoint(int v, int clusterIndex, int placedCount, lo
 // P3-04. PlanConfig.fingerprint(): kanonischer Text aus sortierten Registry-Namen – Block.hashCode ist
 //  identitätsbasiert und würde nach jedem Spielstart einen anderen Hash ergeben.
 
+// P4-03. Läuft Container der Reihe nach an und öffnet sie; kennt keine Minecraft-Screens.
+public final class ScanSession {
+    public interface Actions { void open(BlockPos pos); void close(); boolean screenOpen(); boolean learned(BlockPos pos); }
+    public enum State { IDLE, TRAVELING, OPENING, WAITING, DONE }
+    public record Config(int openIntervalTicks, int screenTimeoutTicks, double reachDistance) { static Config defaults(); }
+                                                                     // Default 10 Ticks / 60 Ticks / 4,0
+    public static List<BlockPos> route(List<BlockPos> containers, Vec3 from);   // Nearest-Neighbor, ohne Doppelte
+    public ScanSession(List<BlockPos> targets, Navigator navigator, Actions actions, Config config, Consumer<String> notes);
+    public void start(); public void tick(PlayerView player); public void cancel();
+    public State state(); public Optional<BlockPos> target();
+    public int learnedCount(); public List<BlockPos> failedContainers(); public int total();
+    // TRAVELING: in Reichweite → OPENING (Navigator freigeben), Navigator FAILED → Meldung, Container übersprungen.
+    // OPENING: höchstens ein Öffnen je openIntervalTicks (Regel 7). WAITING: bis der Inhalt gelernt ist, sonst
+    //  Timeout → übersprungen. Ohne Baritone wird jeder Container von der Stelle aus versucht.
+}
+
 // P4-02. Wie ein Container im Index adressiert wird.
 public final class ContainerKey {
     public static final BlockPos ENDER_CHEST;                        // Sentinel y = Integer.MIN_VALUE: kein echter Block
@@ -564,6 +581,7 @@ setzt dort fort, ein zweites `.sf start` verwirft ihn und fängt von vorn an.
 .sf status              .sf preview [placement]
 .sf verify              .sf materials
 P4-02: `.sf containers` listet den Index (nächste zuerst, stale zuletzt, je Container die vier größten Item-Sorten).
+P4-03: `.sf scan [radius]` (Default 32, 1–128) läuft die Container in geladenen Chunks ab; `.sf scan stop` bricht ab.
 .sf restock [item]      .sf scan [radius]      .sf containers
 .sf undo <n>            .sf doctor
 ```

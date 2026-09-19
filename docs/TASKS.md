@@ -362,9 +362,29 @@ ARCHITECTURE.md §1/§4/§8 vorher ergänzt. Build + 197 Tests grün.
   zuletzt, Enderkiste ohne Sentinel-Position, vier Item-Sorten plus „+n more", leerer Container, lange Liste gekürzt.
 - AK1/AK2/AK3 **offen**: alle drei sind In-game-AKs → TESTLOG.
 
-### P4-03 · `.sf scan [radius]` `todo`
+### P4-03 · `.sf scan [radius]` `done`
 Container-BlockEntities im Radius aus geladenen Chunks; nacheinander anlaufen (Navigator), öffnen, lernen, schließen; Budget für Öffnungen (1 pro 10 Ticks).
 - AK1 Manuell: 6 Kisten in 20 Blöcken → alle im Index, Dauer < 2 min
+
+Stand 2026-09-19: `core/ScanSession` ist die Zustandsmaschine (TRAVELING → OPENING → WAITING → nächster Container),
+programmiert gegen `ScanSession.Actions` statt gegen Minecraft-Screens, damit sie testbar bleibt. `route()` ordnet die
+Container per Nearest-Neighbor ab Spielerposition und wirft Doppelte weg. Öffnen ist auf **eine Aktion pro 10 Ticks**
+begrenzt (Regel 7); wird der Inhalt nicht innerhalb von 60 Ticks gelernt, gilt der Container als übersprungen und es
+gibt eine Chat-Meldung. Ohne Baritone wird jeder Container von der Stelle aus versucht, statt den Scan abzubrechen.
+Im Modul: `containersWithin(radius)` sammelt Block-Entities aus geladenen Chunks
+(`ClientLevel.getChunkSource().getChunk(x, z, false)` + `LevelChunk.getBlockEntities()`, per `javap` geprüft), filtert
+über `McWorldView.containerAt` und normiert Doppelkisten wie beim passiven Lernen. Geöffnet wird mit einem
+`useItemOn` auf die Blockmitte; die Position wird dabei direkt gesetzt, statt sich darauf zu verlassen, dass das
+Interact-Event für den eigenen Aufruf feuert. Neu `.sf scan [radius]` und `.sf scan stop` (`commands/ScanCommand`,
+Default-Radius 32, 1–128). ARCHITECTURE.md §1/§4/§8 vorher ergänzt. Build + 205 Tests grün.
+- **Beim Testen gefunden und behoben:** `tick - lastOpenAt` lief mit dem Startwert `Integer.MIN_VALUE` in einen
+  Integer-Überlauf, dadurch war der Abstand immer negativ und es wurde **nie** ein Container geöffnet. Startwert ist
+  jetzt ein Intervall in der Vergangenheit.
+- `ScanSessionTest` (8): Route nimmt immer den nächsten Container (auch umgekehrt vom anderen Ende), Doppelte fallen
+  weg, jeder Container wird genau einmal geöffnet und der Screen wieder geschlossen, Öffnen ist auf ein Paket je
+  Intervall begrenzt, Container der nicht aufgeht wird nach dem Timeout übersprungen, unerreichbarer Container wird
+  übersprungen und der Scan läuft weiter, Abbruch gibt Pfad und Screen zurück, leere Liste ist sofort fertig.
+- AK1 **offen**: In-game-AK (6 Kisten, Dauer < 2 min) → TESTLOG.
 
 ### P4-04 · `RestockProcess` `todo`
 State-Machine laut ARCHITECTURE.md; Entnahme nur Bedarf der nächsten N Cluster (Setting `lookaheadClusters`, Default 3); Klicks über `ActionBudget` (Default 2/Tick); Screen-Timeout 60 Ticks; Inventar voll → Müll-Liste ablegen, sonst FAILED mit Meldung; Index nach Entnahme korrigieren.
@@ -457,6 +477,10 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
   (Kommandoblock, Plugin-GUI, Minecart mit Kiste), wird die Position falsch zugeordnet – Menütyp wird noch nicht geprüft
 - `ContainerRestock`: der Index wird beim Deaktivieren gespeichert, nicht beim Verlassen der Welt. Stürzt das Spiel ab,
   ist das Gelernte weg
+- P4-03 AK1 in-game nachholen: 6 Kisten in 20 Blöcken → alle im Index, Dauer < 2 min. Dabei messen, ob 10 Ticks
+  zwischen zwei Öffnungen und 60 Ticks Screen-Timeout in der Praxis passen
+- `ScanSession`: der Scan öffnet nur, was in geladenen Chunks ein Block-Entity hat – Kisten hinter der Renderdistanz
+  findet er nicht. Ein Lauf über größere Lager braucht mehrere Scans von verschiedenen Standorten
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

@@ -5,6 +5,10 @@ import dev.tore.schemaforge.compat.McWorldView;
 import dev.tore.schemaforge.core.ContainerIndex;
 import dev.tore.schemaforge.core.ContainerKey;
 import dev.tore.schemaforge.core.ContainerType;
+import dev.tore.schemaforge.core.Navigator;
+import dev.tore.schemaforge.core.ScanSession;
+import dev.tore.schemaforge.compat.BaritoneBridge;
+import dev.tore.schemaforge.compat.McPlayerView;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.entity.player.InteractBlockEvent;
 import meteordevelopment.meteorclient.events.packets.InventoryEvent;
@@ -16,6 +20,12 @@ import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.SectionPos;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
@@ -27,9 +37,14 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Container index for the restock system (P4-02): every container opened by hand is learned, so the index
@@ -65,6 +80,10 @@ public final class ContainerRestock extends Module {
     private BlockPos lastInteracted;
     private int lastInteractedAt;
     private int tick;
+    /** Running {@code .sf scan}, if any (P4-03). */
+    private Optional<ScanSession> scan = Optional.empty();
+    /** Containers learned during the running scan, so the session knows when a visit worked. */
+    private final Set<BlockPos> learnedByScan = new LinkedHashSet<>();
 
     public ContainerRestock() {
         super(SchemaForgeAddon.CATEGORY, "container-restock", "Learns container contents and restocks the printer from them.");
@@ -78,6 +97,7 @@ public final class ContainerRestock extends Module {
     @Override
     public void onDeactivate() {
         saveIndex();
+        cancelScan();
         lastInteracted = null;
     }
 
@@ -100,6 +120,95 @@ public final class ContainerRestock extends Module {
         tick++;
         // The file name needs the world, which is only known once one is joined.
         if (indexFile.isEmpty()) loadIndex();
+        tickScan();
+    }
+
+    /** Containers with a block entity in loaded chunks around the player (P4-03). */
+    public List<BlockPos> containersWithin(int radius) {
+        List<BlockPos> found = new ArrayList<>();
+        if (mc.level == null || mc.player == null) return found;
+        BlockPos centre = mc.player.blockPosition();
+        McWorldView world = new McWorldView(mc.level);
+        int chunkRadius = (radius >> 4) + 1;
+        int centreX = SectionPos.blockToSectionCoord(centre.getX());
+        int centreZ = SectionPos.blockToSectionCoord(centre.getZ());
+        for (int x = centreX - chunkRadius; x <= centreX + chunkRadius; x++) {
+            for (int z = centreZ - chunkRadius; z <= centreZ + chunkRadius; z++) {
+                LevelChunk chunk = mc.level.getChunkSource().getChunk(x, z, false);
+                if (chunk == null) continue;
+                for (BlockPos pos : chunk.getBlockEntities().keySet()) {
+                    if (pos.distSqr(centre) > (double) radius * radius) continue;
+                    if (world.containerAt(pos).isEmpty()) continue;
+                    found.add(canonical(pos));
+                }
+            }
+        }
+        return found.stream().distinct().toList();
+    }
+
+    /** Starts a scan of the containers in {@code radius}; the number of targets, or empty if one is already running. */
+    public Optional<Integer> startScan(int radius, Consumer<String> notes) {
+        if (scan.isPresent() && scan.get().state() != ScanSession.State.DONE) return Optional.empty();
+        List<BlockPos> targets = ScanSession.route(containersWithin(radius), mc.player.position());
+        learnedByScan.clear();
+        ScanSession session = new ScanSession(targets, new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis),
+            new ScanActions(), ScanSession.Config.defaults(), notes);
+        scan = Optional.of(session);
+        session.start();
+        return Optional.of(targets.size());
+    }
+
+    public Optional<ScanSession> scan() {
+        return scan;
+    }
+
+    public void cancelScan() {
+        scan.ifPresent(ScanSession::cancel);
+        scan = Optional.empty();
+        learnedByScan.clear();
+    }
+
+    private void tickScan() {
+        if (scan.isEmpty() || mc.player == null) return;
+        ScanSession session = scan.get();
+        if (session.state() == ScanSession.State.DONE) {
+            info("Scan done: %d of %d containers learned%s.", session.learnedCount(), session.total(),
+                session.failedContainers().isEmpty() ? "" : ", " + session.failedContainers().size() + " skipped");
+            saveIndex();
+            scan = Optional.empty();
+            learnedByScan.clear();
+            return;
+        }
+        session.tick(new McPlayerView(mc.player, 4.5));
+    }
+
+    /** The screen side of a scan; opening is one right-click, closing is the vanilla close. */
+    private final class ScanActions implements ScanSession.Actions {
+        @Override
+        public void open(BlockPos pos) {
+            if (mc.player == null || mc.gameMode == null) return;
+            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
+            // Set directly rather than relying on the interact event firing for our own call.
+            lastInteracted = pos.immutable();
+            lastInteractedAt = tick;
+            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+            mc.player.swing(InteractionHand.MAIN_HAND);
+        }
+
+        @Override
+        public void close() {
+            if (mc.player != null) mc.player.closeContainer();
+        }
+
+        @Override
+        public boolean screenOpen() {
+            return mc.player != null && mc.player.containerMenu != mc.player.inventoryMenu;
+        }
+
+        @Override
+        public boolean learned(BlockPos pos) {
+            return learnedByScan.contains(pos);
+        }
     }
 
     /** Remembers what was right-clicked, because the container screen itself does not say where it stands. */
@@ -125,6 +234,7 @@ public final class ContainerRestock extends Module {
 
         BlockPos pos = type.get() == ContainerType.ENDER_CHEST ? ContainerKey.ENDER_CHEST : canonical(target.get());
         index.learn(pos, type.get(), contentsOf(menu));
+        learnedByScan.add(pos);
     }
 
     /** Counts the container half of the menu; the player's own inventory at the end is left out. */
