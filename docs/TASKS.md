@@ -193,7 +193,7 @@ Log-Warnung statt NPE. Settings-Backup/Restore liegt seit P2-06 im `AdditiveOnly
 Neu `commands/DebugCommands`: `.sf debug goto <x> <y> <z>` und `.sf debug stopgoto`. Build + 138 Tests grün.
 - AK2 erfüllt: `BaritoneBridgeTest` (3) – Baritone fehlt im Test-Runtime (`compileOnly`), `isPresent()` false, alle vier
   Methoden werfen nicht, `isPathing()` false.
-- AK1 **offen**: In-game-Test → TESTLOG.
+- AK1 in-game **bestanden** 2026-09-19 (Dev-Client, Nutzer): `.sf debug goto x y z` läuft zum Ziel.
 
 ### P3-02 · `Navigator` + TRAVELING-State `done`
 Cluster ohne erreichbare Tasks → `gotoNear(center, 3)`; Timeout 20 s → Cluster ans Ende der Liste, nach 3 Fehlversuchen blacklisten und melden.
@@ -219,7 +219,9 @@ neuen Navigator und ruft `cancel()` in `onDeactivate`. Build + 147 Tests grün.
 - `BuildSessionTest` +4: Cluster außer Reichweite wird angelaufen (Ziel = Cluster-Mitte, Radius 3) und nach der Ankunft
   gebaut; eingemauerter Cluster → 3 Anläufe, Blacklist-Meldung, erreichbarer Teil bleibt gebaut, Lauf endet in DONE;
   ohne Pfadfinder nie TRAVELING; Pause während der Fahrt gibt den Pfad frei und zählt keinen Fehlversuch.
-- AK1/AK2 **offen**: beides sind In-game-Tests (Baritone läuft im Unit-Test nicht) → TESTLOG.
+- AK1/AK2 in-game **bestanden** 2026-09-19 (Dev-Client, Nutzer): Printer baut, läuft, baut; unerreichbarer Cluster wird
+  gemeldet und der Bau geht weiter. Ohne Messwerte zurückgemeldet – ob `ARRIVE_DISTANCE` = 5 und die 1,5 s Anlaufzeit
+  auch in schwierigerem Gelände passen, zeigt erst der Dauerlauf (P3-06).
 
 ### P3-03 · Sicherheitsstopps → PAUSED `done`
 Schaden, Hunger < `minFood`, Spieler im Radius, Chunk nicht geladen, Inventar leer für alle offenen Tasks.
@@ -243,7 +245,8 @@ jeder Prüfung gelesen. Build + 157 Tests grün.
 - `BuildSessionTest` +3: Schaden pausiert, bleibt 10 Ticks pausiert, setzt nichts und läuft erst nach `.sf resume`
   weiter; Spieler in der Nähe pausiert und der Lauf geht von allein weiter, wenn er sich entfernt; leeres Inventar
   pausiert (sobald der Bedarf des ersten Clusters feststeht) und läuft weiter, wenn die Items wieder da sind.
-- AK1 **offen**: In-game je Bedingung → TESTLOG.
+- AK1 in-game **bestanden** 2026-09-19 (Dev-Client, Nutzer): Pause mit Chat-Grund je Bedingung, automatisches
+  Fortsetzen bzw. `.sf resume` nach Schaden.
 
 ### P3-04 · `BuildResume` `todo`
 Checkpoint alle 30 s + bei Stop. `.sf start` mit vorhandenem Checkpoint fragt „resume? .sf resume“.
@@ -340,11 +343,9 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - `SchemaPrinter`: `blocksPerTick` > 1 ist einstellbar, aber die Zusatzpakete (Rotation, Sneak) zählt das Budget noch nicht – vor P5-05 messen
 - `.sf verify` und `.sf materials` (§8) haben noch kein Ticket; `.sf status` deckt den Verifier-Teil bisher nur als Zählung „left to place / mismatched“ ab
 
-- P3-01 AK1 in-game nachholen: `.sf debug goto x y z` läuft zum Ziel (braucht Baritone im Dev-Client)
-- P3-02 AK1/AK2 in-game nachholen: 20×20×3-Plattform → bauen/laufen/bauen, kein Cluster > 3× angelaufen; eingemauerter
-  Cluster → Blacklist-Meldung, Bau geht weiter. Dabei prüfen, ob `ARRIVE_DISTANCE` = 5 in der Praxis reicht oder
-  Baritone regelmäßig zu weit weg stehen bleibt
-- P3-03 AK1 in-game je Bedingung nachholen (Schaden, Hunger, Spieler im Radius, Chunk entladen, leeres Inventar)
+- ~~P3-01 AK1, P3-02 AK1/AK2, P3-03 AK1 in-game~~ **bestanden 2026-09-19** (siehe TESTLOG)
+- `Navigator`: ob `ARRIVE_DISTANCE` = 5 und die 1,5 s Anlaufzeit auch in schwierigem Gelände reichen, ist noch nicht
+  gemessen – im Dauerlauf-Test (P3-06) mitbeobachten
 - `.sf status` zeigt den Grund einer automatischen Pause noch nicht an (`BuildSession.safetyPause()` gibt es), nur die
   Chat-Meldung – `StatusReport` müsste den Grund mitbekommen
 - `SafetyMonitor`: Schadenserkennung vergleicht nur den Lebensbalken; Rüstungsschaden ohne Lebensverlust oder Gift, das
