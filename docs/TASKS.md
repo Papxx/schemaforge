@@ -248,10 +248,29 @@ jeder Prüfung gelesen. Build + 157 Tests grün.
 - AK1 in-game **bestanden** 2026-09-19 (Dev-Client, Nutzer): Pause mit Chat-Grund je Bedingung, automatisches
   Fortsetzen bzw. `.sf resume` nach Schaden.
 
-### P3-04 · `BuildResume` `todo`
+### P3-04 · `BuildResume` `done`
 Checkpoint alle 30 s + bei Stop. `.sf start` mit vorhandenem Checkpoint fragt „resume? .sf resume“.
 - AK1 Manuell: Disconnect mitten im Bau → Reconnect → `.sf resume` macht bei Cluster i weiter
 - AK2 `planConfigHash` anders → Warnung, Checkpoint verworfen
+
+Stand 2026-09-19: `core/BuildCheckpoint` (Record + Gson-Datei nach §6, `"v":1` als erstes Feld, `save`/`load`/`delete`,
+Lese- und Schreibfehler werden geloggt statt geworfen) und `PlanConfig.fingerprint()`. Wichtig: der Fingerprint wird aus
+**sortierten Registry-Namen** gebaut, nicht aus `hashCode` – `Block.hashCode` ist identitätsbasiert, jeder Spielstart
+hätte sonst „Settings geändert“ gemeldet. `BuildSession.start(int fromCluster)` überspringt beim Planen die schon
+erledigten Cluster. Modul `BuildResume` (Setting `interval`, 5–300 s, Default 30) hält Datei und Intervall; der
+`SchemaPrinter` schreibt den Checkpoint im Tick, beim `onDeactivate` und löscht ihn bei DONE. `.sf start` mit passendem
+Checkpoint **startet nicht**, sondern bietet ihn an (`.sf resume` = weiter bei Cluster i, nochmal `.sf start` = von vorn,
+Checkpoint weg); ein Checkpoint mit anderem `planConfigHash` wird mit Warnung verworfen und der Lauf startet normal.
+Modul in `SchemaForgeAddon` registriert. ARCHITECTURE.md §4/§5/§6/§8 vorher ergänzt. Build + 166 Tests grün.
+- **Beim Testen gefunden und behoben:** zeigte der Checkpoint hinter den letzten Cluster (Schematic geschrumpft, Cluster
+  neu geschnitten), endete der Lauf sofort in DONE – die Regel „Runde ohne Platzierung beendet den Bau“ griff auf eine
+  Runde, die nur wegen des Resume nichts getan hatte. Eine solche Runde beendet den Lauf jetzt nicht mehr.
+- `BuildCheckpointTest` (7): Roundtrip, `"v":1` zuerst + alle vier Felder aus §6, fehlende/kaputte/fremde Version →
+  leer, Löschen ohne Datei, Fingerprint ignoriert Reihenfolge und Collection-Typ aber nicht den Inhalt, AK2
+  (Cluster-Größe bzw. neue Substitute → passt nicht mehr), anderes Placement → anderer Fingerprint.
+- `BuildSessionTest` +2: Resume startet beim angegebenen Cluster (übersprungene Reihe holt die Verify-Runde nach),
+  Resume hinter dem letzten Cluster baut in der zweiten Runde trotzdem alles.
+- AK1/AK2 **offen**: beides sind In-game-AKs (Disconnect/Reconnect) → TESTLOG.
 
 ### P3-05 · `BuildProgressHud` `todo`
 - AK1 HUD-Element in Meteor-HUD-Editor platzierbar, zeigt %, Blöcke/min, ETA, State, Fehlbestand (Top 3)
@@ -351,6 +370,12 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - `SafetyMonitor`: Schadenserkennung vergleicht nur den Lebensbalken; Rüstungsschaden ohne Lebensverlust oder Gift, das
   genau bis 1 zieht, lösen nichts aus. Ggf. an Meteors Damage-Event hängen
 - `Printer.outOfMaterials` nutzt den Bedarf vom Beginn des Cluster-Besuchs, zählt also schon gesetzte Blöcke mit
+- P3-04 AK1/AK2 in-game nachholen: Disconnect mitten im Bau → Reconnect → `.sf resume` macht bei Cluster i weiter;
+  Setting ändern → `.sf start` warnt und verwirft den Checkpoint
+- `BuildResume`: der Checkpoint speichert nur den Cluster-Index, nicht die Runde. Nach dem Fortsetzen beginnt der Lauf
+  wieder bei Runde 1 – bei einem Abbruch in Runde 2/3 wird also mehr nachgeprüft als nötig
+- `BuildResume`: Cluster-Indizes gelten nur für denselben Plan; ändert sich die Welt stark, zeigt der Index woandershin.
+  Der `planConfigHash` fängt nur Setting-Änderungen ab, nicht Weltänderungen
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

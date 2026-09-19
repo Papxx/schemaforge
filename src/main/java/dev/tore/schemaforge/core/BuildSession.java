@@ -60,6 +60,10 @@ public final class BuildSession {
     private int remaining;
     private long activeMs;
     private long activeSince;
+    /** Cluster the first round starts at; set by {@link #start(int)} for a resumed build (P3-04). */
+    private int resumeFrom;
+    /** True while the running round skipped clusters because of a resume; it may not end the build on its own. */
+    private boolean resumedRound;
     /** The safety stop that paused the build, empty after a manual pause or while running (P3-03). */
     private Optional<SafetyMonitor.Trigger> safetyPause = Optional.empty();
 
@@ -84,7 +88,16 @@ public final class BuildSession {
 
     /** IDLE → PLANNING; ignored in any other state. */
     public void start() {
+        start(0);
+    }
+
+    /**
+     * Starts and skips straight to {@code fromCluster} (0-based) after planning (P3-04).
+     * Clusters before it are not visited again; whatever is still open there is caught by the VERIFYING round.
+     */
+    public void start(int fromCluster) {
         if (state != State.IDLE) return;
+        resumeFrom = Math.max(0, fromCluster);
         activeSince = clockMs.getAsLong();
         enter(State.PLANNING);
     }
@@ -265,8 +278,11 @@ public final class BuildSession {
 
     private void verify(WorldView world, PlayerView player) {
         int placedThisRound = placedInRound;
+        // A resumed round skipped clusters, so placing nothing says nothing about what is left to do (P3-04).
+        boolean skippedClusters = resumedRound;
+        resumedRound = false;
         replan(world, player);
-        if (remaining == 0 || placedThisRound == 0 || round >= MAX_ROUNDS) {
+        if (remaining == 0 || (placedThisRound == 0 && !skippedClusters) || round >= MAX_ROUNDS) {
             activeMs += clockMs.getAsLong() - activeSince;
             enter(State.DONE);
             return;
@@ -277,7 +293,10 @@ public final class BuildSession {
 
     private void replan(WorldView world, PlayerView player) {
         clusters = new ArrayList<>(planner.plan(snap, world, BlockPos.containing(player.eyePos())));
-        current = -1;
+        // A resumed run skips the clusters it already worked on; only the first plan of the run does this.
+        current = Math.min(resumeFrom, clusters.size()) - 1;
+        resumedRound = resumeFrom > 0;
+        resumeFrom = 0;
         placedInRound = 0;
         List<BlockTask> tasks = clusters.stream().flatMap(c -> c.tasks().stream()).toList();
         remaining = (int) tasks.stream().filter(t -> t.kind() == TaskKind.PLACE).count();

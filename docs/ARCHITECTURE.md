@@ -43,7 +43,7 @@ dev.tore.schemaforge
 ├── modules/
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
 │   ├── ContainerRestock             Restock-Settings
-│   └── BuildResume                  Checkpoint-Persistenz
+│   └── BuildResume                  Checkpoint-Persistenz (P3-04): Intervall-Setting + Datei, Printer ruft es
 ├── commands/  SfCommand             .sf <sub> – Sub-Commands als eigene Klassen (DoctorCommand, PreviewCommand, …)
 │              PlacementChoice       Placement-Argument auflösen, gemeinsam für preview/start (P2-07)
 │              StartCommand, ControlCommands (pause/resume/stop), StatusCommand   (P2-07)
@@ -370,6 +370,21 @@ public final class PlacementLog {
     public Optional<IOException> writeError();                       // erster Schreibfehler; danach nur noch im Speicher
 }
 
+// P3-04. Eine gespeicherte Bauposition; Gson, "v" als erstes Feld (§6).
+public final record BuildCheckpoint(int v, int clusterIndex, int placedCount, long startedAt, String planConfigHash) {
+    public static final int VERSION = 1;
+    public BuildCheckpoint(int clusterIndex, int placedCount, long startedAt, String planConfigHash);   // v = VERSION
+    public static String fingerprint(PlanConfig config, String placement);  // SHA-256 (16 hex) über PlanConfig.fingerprint()
+    public void save(Path file);                                     // Schreibfehler werden geloggt, nie geworfen
+    public static Optional<BuildCheckpoint> load(Path file);         // leer: fehlt, kaputt oder andere Schema-Version
+    public static void delete(Path file);
+    public boolean fits(PlanConfig config, String placement);        // AK2: sonst Checkpoint verwerfen
+    // clusterIndex ist 1-basiert wie in Status; .sf resume startet die Session mit start(clusterIndex - 1).
+}
+
+// P3-04. PlanConfig.fingerprint(): kanonischer Text aus sortierten Registry-Namen – Block.hashCode ist
+//  identitätsbasiert und würde nach jedem Spielstart einen anderen Hash ergeben.
+
 public final class ContainerIndex {
     public record Entry(BlockPos pos, ContainerType type, long lastSeenEpochMs, Map<Item,Integer> items, boolean stale) {}
     public void learn(BlockPos pos, ContainerType type, Map<Item,Integer> items);
@@ -414,6 +429,9 @@ public final class BuildSession {
     public void tick(WorldView world, PlayerView player, InventoryView inv, SafetyView safety, PrintActions actions);
     public Optional<SafetyMonitor.Trigger> safetyPause();            // P3-03: Grund der automatischen Pause, sonst leer
     public void start();                                             // IDLE → PLANNING
+    public void start(int fromCluster);                              // P3-04: Resume – erste Runde beginnt bei diesem Cluster
+    // Eine Runde, die wegen Resume Cluster übersprungen hat, darf den Lauf nicht beenden, nur weil sie nichts
+    //  gesetzt hat; sonst wäre nach einem Checkpoint hinter dem letzten Cluster sofort DONE.
     public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions);
     public boolean pause();                                          // aus jedem laufenden Zustand → PAUSED; false sonst
                                                                      // P3-02: aus TRAVELING zusätzlich navigator.cancel(), resume läuft den Cluster neu an
@@ -466,6 +484,7 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 
 - `meteor-client/schemaforge/containers-<serverHash>-<dimension>.json` – ContainerIndex
 - `meteor-client/schemaforge/resume-<placementName>.json` – `{ clusterIndex, placedCount, startedAt, planConfigHash }`
+  (P3-04; geschrieben alle `interval` Sekunden solange das Modul `BuildResume` an ist, dazu beim Stop; bei DONE gelöscht)
 - `meteor-client/schemaforge/placementlog-<placementName>.jsonl` – eine Zeile pro Platzierung `{pos, block, temp, t}`
 - Format Gson; Schema-Version als erstes Feld (`"v": 1`).
 
@@ -496,6 +515,8 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 
 ```
 .sf start [placement]   .sf pause   .sf resume   .sf stop
+P3-04: `.sf start` mit passendem Checkpoint startet nicht, sondern bietet ihn an; `.sf resume` ohne laufenden Bau
+setzt dort fort, ein zweites `.sf start` verwirft ihn und fängt von vorn an.
 .sf debug goto <x> <y> <z>   .sf debug stopgoto      (P3-01, intern)
 .sf status              .sf preview [placement]
 .sf verify              .sf materials

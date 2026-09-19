@@ -316,6 +316,33 @@ class BuildSessionTest {
         assertEquals(ROW, s.actions.placed.size());
     }
 
+    @Test
+    void aResumedRunStartsAtTheGivenCluster() {
+        Setup s = new Setup(rows(2));
+        s.session.start(1);
+        s.tick();
+        s.tick();
+
+        // Cluster 1 is skipped; the first building tick goes straight to cluster 2.
+        assertEquals(2, s.session.status().clusterIndex());
+        s.tickUntilDone();
+
+        // The skipped row is still built: the verifying round plans it again from scratch.
+        assertEquals(2 * ROW, s.actions.placed.size());
+    }
+
+    @Test
+    void resumingBeyondTheLastClusterFallsBackToVerifying() {
+        Setup s = new Setup(rows(1));
+        s.session.start(99);
+        s.tick();
+        s.tick();
+
+        assertEquals(List.of(), s.actions.placed, "nothing to do in the first round");
+        s.tickUntilDone();
+        assertEquals(ROW, s.actions.placed.size(), "the second round catches the whole row");
+    }
+
     // --- helpers ------------------------------------------------------------------------------------
 
     /** One row within reach and one 40 blocks away, so the second cluster has to be walked to. */

@@ -9,6 +9,7 @@ import dev.tore.schemaforge.compat.McPrintActions;
 import dev.tore.schemaforge.compat.McSafetyView;
 import dev.tore.schemaforge.compat.McWorldView;
 import dev.tore.schemaforge.core.ActionBudget;
+import dev.tore.schemaforge.core.BuildCheckpoint;
 import dev.tore.schemaforge.core.AdditiveOnlyGuard;
 import dev.tore.schemaforge.core.BuildSession;
 import dev.tore.schemaforge.core.HotbarSlots;
@@ -36,6 +37,7 @@ import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.settings.StringListSetting;
 import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -213,6 +215,12 @@ public final class SchemaPrinter extends Module {
     private final Set<Item> reportedShortages = new HashSet<>();
 
     private Optional<BuildSession> session = Optional.empty();
+    /** Plan settings of the running build; the checkpoint fingerprint is taken from these (P3-04). */
+    private Optional<PlanConfig> planInRun = Optional.empty();
+    /** Cluster the next activation starts at, set by {@code .sf resume} without a running build (P3-04). */
+    private int resumeFromCluster;
+    private long runStartedAt;
+    private long lastCheckpointAt;
     /** Pathfinder of the running build; a new one per run, so blacklisted clusters do not carry over (P3-02). */
     private Navigator navigator = new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis);
     /** Status of the last run, kept for {@code .sf status} after it ended. */
@@ -258,13 +266,20 @@ public final class SchemaPrinter extends Module {
         }
         session = started;
         guard.engage(additiveOnly.get());
-        started.get().start();
+        runStartedAt = System.currentTimeMillis();
+        lastCheckpointAt = runStartedAt;
+        started.get().start(resumeFromCluster);
+        resumeFromCluster = 0;
     }
 
     @Override
     public void onDeactivate() {
         session.map(BuildSession::status).ifPresent(status -> lastStatus = Optional.of(status));
+        // A checkpoint on stop as well, so a deliberate .sf stop can be picked up too (P3-04).
+        session.ifPresent(run -> saveCheckpoint(run.status()));
         session = Optional.empty();
+        planInRun = Optional.empty();
+        resumeFromCluster = 0;
         navigator.cancel();
         reportedShortages.clear();
         stopNextTick = false;
@@ -309,6 +324,8 @@ public final class SchemaPrinter extends Module {
             additiveOnly.get(), ignoreAir.get(),
             Set.copyOf(skipIfWorldIs.get()), Set.copyOf(treatAsAir.get()), Set.copyOf(neverPlace.get()),
             parsed.map(), Set.copyOf(ignoreProperties.get()));
+        planInRun = Optional.of(plan);
+
         WorkPlanner planner = new WorkPlanner(plan);
         MaterialManager materials = new MaterialManager(this::currentHotbarSlots, this::onShortage);
         Printer printer = new Printer(new PlacementSolver(new SolverConfig(clickAdjacentOnly.get(), lineOfSight.get())),
@@ -342,11 +359,16 @@ public final class SchemaPrinter extends Module {
         run.tick(new McWorldView(mc.level), new McPlayerView(mc.player, reach.get()),
             new McInventoryView(mc.player), new McSafetyView(mc.player, mc.level),
             new McPrintActions(mc, rotationSpoofInRun));
-        if (run.state() == BuildSession.State.DONE) finish(run);
+        if (run.state() == BuildSession.State.DONE) {
+            finish(run);
+            return;
+        }
+        checkpointIfDue(run);
     }
 
     private void finish(BuildSession run) {
         BuildSession.Status status = run.status();
+        BuildResume.discard(FOLDER, status.placement());
         if (status.remaining() == 0 && status.mismatched() == 0) {
             info("Done: %d blocks placed, nothing left.", status.placed());
         } else {
@@ -368,6 +390,38 @@ public final class SchemaPrinter extends Module {
 
     public Setting<String> placementSetting() {
         return placement;
+    }
+
+    /** Where the checkpoint files live (ARCHITECTURE.md §6). */
+    public static Path folder() {
+        return FOLDER;
+    }
+
+    /** Plan settings as {@code .sf start} would use them right now, for the checkpoint check (P3-04). */
+    public PlanConfig currentPlanConfig() {
+        return new PlanConfig(clusterSize.get(), layerAxis.get(), layerAscending.get(),
+            additiveOnly.get(), ignoreAir.get(),
+            Set.copyOf(skipIfWorldIs.get()), Set.copyOf(treatAsAir.get()), Set.copyOf(neverPlace.get()),
+            Substitutes.parse(substitutes.get()).map(), Set.copyOf(ignoreProperties.get()));
+    }
+
+    /** Makes the next activation continue at {@code clusterIndex} (0-based) instead of the first cluster (P3-04). */
+    public void resumeFrom(int clusterIndex) {
+        resumeFromCluster = Math.max(0, clusterIndex);
+    }
+
+    private void checkpointIfDue(BuildSession run) {
+        BuildResume resume = Modules.get().get(BuildResume.class);
+        long now = System.currentTimeMillis();
+        if (!resume.isActive() || now - lastCheckpointAt < resume.intervalMs()) return;
+        lastCheckpointAt = now;
+        saveCheckpoint(run.status());
+    }
+
+    private void saveCheckpoint(BuildSession.Status status) {
+        if (planInRun.isEmpty()) return;
+        Modules.get().get(BuildResume.class)
+            .save(FOLDER, status.placement(), status.clusterIndex(), status.placed(), runStartedAt, planInRun.get());
     }
 
     private void onShortage(MaterialManager.Shortage shortage) {
