@@ -2,11 +2,13 @@ package dev.tore.schemaforge;
 
 import com.mojang.logging.LogUtils;
 import dev.tore.schemaforge.commands.SfCommand;
+import dev.tore.schemaforge.hud.BuildProgressHud;
 import dev.tore.schemaforge.modules.BuildResume;
 import dev.tore.schemaforge.modules.SchemaPrinter;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
 import meteordevelopment.meteorclient.commands.Commands;
+import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
@@ -15,7 +17,7 @@ import org.slf4j.Logger;
 /**
  * Addon entry point. Holds the shared logger, module category and HUD group.
  * Modules, commands and HUD elements are registered by the tickets that implement them
- * (SfCommand: P0-05, SchemaPrinter: P2-07 and BuildResume: P3-04 – registered, BuildProgressHud: P3-05,
+ * (SfCommand: P0-05, SchemaPrinter: P2-07, BuildResume: P3-04 and BuildProgressHud: P3-05 – registered,
  * ContainerRestock: P4-04), so no unfinished shell is reachable in-game.
  */
 public class SchemaForgeAddon extends MeteorAddon {
@@ -30,6 +32,7 @@ public class SchemaForgeAddon extends MeteorAddon {
         Commands.add(new SfCommand());
         Modules.get().add(new SchemaPrinter());
         Modules.get().add(new BuildResume());
+        Hud.get().register(BuildProgressHud.INFO);
     }
 
     @Override

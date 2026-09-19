@@ -272,8 +272,23 @@ Modul in `SchemaForgeAddon` registriert. ARCHITECTURE.md §4/§5/§6/§8 vorher 
   Resume hinter dem letzten Cluster baut in der zweiten Runde trotzdem alles.
 - AK1/AK2 **offen**: beides sind In-game-AKs (Disconnect/Reconnect) → TESTLOG.
 
-### P3-05 · `BuildProgressHud` `todo`
+### P3-05 · `BuildProgressHud` `done`
 - AK1 HUD-Element in Meteor-HUD-Editor platzierbar, zeigt %, Blöcke/min, ETA, State, Fehlbestand (Top 3)
+
+Stand 2026-09-19: Text und Rendering getrennt – `core/ProgressReport` liefert die Zeilen (Prozent = placed /
+(placed + remaining), abgerundet, damit 99 % nie wie fertig aussieht; ETA "-" ohne Rest, "?" ohne Rate, sonst `5m` /
+`2h30m`; Fehlbestand die größten drei plus „+n more"), `hud/BuildProgressHud` zeichnet sie. Meteor-HUD-API in `refs/`
+nachgeschlagen (`HudElement`, `HudElementInfo`, `HudRenderer.text/textHeight/quad`, `isInEditor()`,
+`Hud.get().getTextScale()`, Vorbild `LagNotifierHud`): Settings für `hide-when-idle`, Schatten, Textfarbe, eigene Farbe
+für die Fehlbestandszeile, Scale und Hintergrund; im HUD-Editor zeigt das Element Beispieldaten, damit es ohne
+laufenden Bau platziert werden kann. `SchemaPrinter.shortages()` liefert den Fehlbestand des **aktuellen** Clusters –
+die Liste wird beim Clusterwechsel geleert, sonst stünden längst nachgefüllte Items noch im HUD. Registriert über
+`Hud.get().register(BuildProgressHud.INFO)` in `SchemaForgeAddon`. ARCHITECTURE.md §1/§4 vorher ergänzt.
+Build + 174 Tests grün.
+- `ProgressReportTest` (8): Leerlauf, laufender Bau (2 Zeilen), Prozent inkl. Ab- und Randfällen, ETA-Fälle,
+  mismatched-Zeile nur wenn > 0, Top-3-Fehlbestand mit „+1 more", einzelner Fehlbestand ohne Suffix,
+  gestoppter Lauf zeigt STOPPED statt BUILDING.
+- AK1 **offen**: Platzieren im HUD-Editor ist ein In-game-AK → TESTLOG.
 
 ### P3-06 · Dauerlauf-Test `todo`
 - AK1 Manuell: 60×60×30-Schematic, 30 min unbeaufsichtigt auf Testserver → kein Stillstand > 60 s ohne PAUSED-Grund; Ergebnis in TESTLOG
@@ -376,6 +391,9 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
   wieder bei Runde 1 – bei einem Abbruch in Runde 2/3 wird also mehr nachgeprüft als nötig
 - `BuildResume`: Cluster-Indizes gelten nur für denselben Plan; ändert sich die Welt stark, zeigt der Index woandershin.
   Der `planConfigHash` fängt nur Setting-Änderungen ab, nicht Weltänderungen
+- P3-05 AK1 in-game nachholen: Element im Meteor-HUD-Editor platzieren, Werte während eines Laufs gegenprüfen
+- `BuildProgressHud`: die ETA rechnet mit der Durchschnittsrate des ganzen Laufs; nach einer langen Pause ist sie
+  zu pessimistisch. Ggf. gleitendes Mittel der letzten Minute
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

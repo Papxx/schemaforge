@@ -39,6 +39,7 @@ dev.tore.schemaforge
 │   ├── ContainerType                enum CHEST / BARREL / SHULKER / ENDER_CHEST (WorldView, ContainerIndex)
 │   ├── SkipReason                   Grund eines SKIP-Tasks (P1-03)
 │   ├── PreviewReport                Text von .sf preview als Zeilenliste, ohne Chat-Abhängigkeit (P1-05)
+│   ├── ProgressReport               Zeilen des Fortschritts-HUD, ohne Render-Abhängigkeit (P3-05)
 │   └── view/  WorldView, InventoryView, PlayerView, PrintActions   (kleine Interfaces für Testbarkeit)
 ├── modules/
 │   ├── SchemaPrinter                Hauptmodul + alle Settings
@@ -368,6 +369,17 @@ public final class PlacementLog {
     public void append(BlockPos pos, BlockState block, boolean temp);
     public List<Entry> entries();                                    // Einträge dieser Sitzung
     public Optional<IOException> writeError();                       // erster Schreibfehler; danach nur noch im Speicher
+}
+
+// P3-05. Zeilen des Fortschritts-HUD; hud/BuildProgressHud zeichnet sie nur.
+public final class ProgressReport {
+    public static final int TOP_SHORTAGES = 3;
+    public static List<String> lines(Optional<BuildSession.Status> status, List<MaterialManager.Shortage> shortages,
+                                     boolean running);
+    public static int percent(BuildSession.Status status);           // placed / (placed + remaining), abgerundet
+    public static String eta(BuildSession.Status status);            // "-" ohne Rest, "?" ohne Rate, sonst 5m / 2h30m
+    // Zeilen: "<STATE> <placement> <n>%" · "<placed> placed, <remaining> left - <rate>/min - ETA <eta>" ·
+    //  "<n> mismatched" (nur wenn > 0) · "missing: 64x stone, … +n more" (größte drei). Ohne Lauf: "SchemaForge: idle".
 }
 
 // P3-04. Eine gespeicherte Bauposition; Gson, "v" als erstes Feld (§6).

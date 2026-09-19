@@ -47,6 +47,8 @@ import net.minecraft.world.level.block.Blocks;
 
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -211,8 +213,10 @@ public final class SchemaPrinter extends Module {
 
     private final AdditiveOnlyGuard guard = new AdditiveOnlyGuard(BaritoneBridge.BREAK_SETTINGS);
     private final ActionBudget budget = new ActionBudget(this::budgetLimit);
-    /** Items already reported as missing in this run. */
+    /** Items already reported as missing in this run; the chat warning fires once per item. */
     private final Set<Item> reportedShortages = new HashSet<>();
+    /** Shortages of the cluster being worked on, for the progress HUD (P3-05). */
+    private final Map<Item, Integer> currentShortages = new LinkedHashMap<>();
 
     private Optional<BuildSession> session = Optional.empty();
     /** Plan settings of the running build; the checkpoint fingerprint is taken from these (P3-04). */
@@ -221,6 +225,8 @@ public final class SchemaPrinter extends Module {
     private int resumeFromCluster;
     private long runStartedAt;
     private long lastCheckpointAt;
+    /** Cluster the shortage list belongs to; a new cluster clears it so the HUD cannot show stale items. */
+    private int shortagesOfCluster = -1;
     /** Pathfinder of the running build; a new one per run, so blacklisted clusters do not carry over (P3-02). */
     private Navigator navigator = new Navigator(BaritoneBridge.PATHING, System::currentTimeMillis);
     /** Status of the last run, kept for {@code .sf status} after it ended. */
@@ -282,6 +288,8 @@ public final class SchemaPrinter extends Module {
         resumeFromCluster = 0;
         navigator.cancel();
         reportedShortages.clear();
+        currentShortages.clear();
+        shortagesOfCluster = -1;
         stopNextTick = false;
         guard.release();
     }
@@ -363,6 +371,7 @@ public final class SchemaPrinter extends Module {
             finish(run);
             return;
         }
+        forgetShortagesOfFinishedCluster(run);
         checkpointIfDue(run);
     }
 
@@ -410,6 +419,21 @@ public final class SchemaPrinter extends Module {
         resumeFromCluster = Math.max(0, clusterIndex);
     }
 
+    /** What is missing for the cluster being worked on right now (P3-05). */
+    public List<MaterialManager.Shortage> shortages() {
+        return currentShortages.entrySet().stream()
+            .map(e -> new MaterialManager.Shortage(e.getKey(), e.getValue()))
+            .toList();
+    }
+
+    /** The shortage list belongs to one cluster; carrying it over would show items that have long since been restocked. */
+    private void forgetShortagesOfFinishedCluster(BuildSession run) {
+        int cluster = run.status().clusterIndex();
+        if (cluster == shortagesOfCluster) return;
+        shortagesOfCluster = cluster;
+        currentShortages.clear();
+    }
+
     private void checkpointIfDue(BuildSession run) {
         BuildResume resume = Modules.get().get(BuildResume.class);
         long now = System.currentTimeMillis();
@@ -425,6 +449,7 @@ public final class SchemaPrinter extends Module {
     }
 
     private void onShortage(MaterialManager.Shortage shortage) {
+        currentShortages.put(shortage.item(), shortage.missing());
         if (reportedShortages.add(shortage.item())) {
             warning("Missing %d x %s; the printer skips those blocks (restock comes with P4-04).",
                 shortage.missing(), BuiltInRegistries.ITEM.getKey(shortage.item()).getPath());
