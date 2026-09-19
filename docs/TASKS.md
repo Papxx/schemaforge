@@ -430,7 +430,7 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 
 ## Phase 5 – Feinschliff
 
-### P5-01 · `.sf undo <n>` `todo` — aus `PlacementLog`, nur eigene Blöcke, Budget beachten
+### P5-01 · `.sf undo <n>` `in_progress` — aus `PlacementLog`, nur eigene Blöcke, Budget beachten
 ### P5-02 · Temporäre Stützblöcke `todo` — Whitelist, Log-Flag `temp`, Entfernen am Cluster-Ende, nur `additiveOnly=false`
 ### P5-03 · Fluids `todo` — Bucket vom Nachbarblock, Quellblock-Check, Setting `handleFluids`
 ### P5-04 · Rails `todo` — Reihenfolge gerade→Kurve, Verifier-Gegencheck

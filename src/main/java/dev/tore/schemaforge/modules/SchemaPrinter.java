@@ -23,6 +23,7 @@ import dev.tore.schemaforge.core.SafetyMonitor;
 import dev.tore.schemaforge.core.Printer;
 import dev.tore.schemaforge.core.SchematicSnapshot;
 import dev.tore.schemaforge.core.SolverConfig;
+import dev.tore.schemaforge.core.UndoSession;
 import dev.tore.schemaforge.core.Substitutes;
 import dev.tore.schemaforge.core.WorkPlanner;
 import meteordevelopment.meteorclient.MeteorClient;
@@ -39,6 +40,7 @@ import meteordevelopment.meteorclient.settings.StringListSetting;
 import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.utils.world.BlockUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -220,6 +222,8 @@ public final class SchemaPrinter extends Module {
     private final Map<Item, Integer> currentShortages = new LinkedHashMap<>();
 
     private Optional<BuildSession> session = Optional.empty();
+    /** Running {@code .sf undo}, if any (P5-01); it ticks here so it shares the packet budget. */
+    private Optional<UndoSession> undo = Optional.empty();
     /** Plan settings of the running build; the checkpoint fingerprint is taken from these (P3-04). */
     private Optional<PlanConfig> planInRun = Optional.empty();
     /** Cluster the next activation starts at, set by {@code .sf resume} without a running build (P3-04). */
@@ -363,7 +367,9 @@ public final class SchemaPrinter extends Module {
         }
         tickCounter++;
         budget.resetTick();
-        if (session.isEmpty() || mc.level == null || mc.player == null) return;
+        if (mc.level == null || mc.player == null) return;
+        tickUndo();
+        if (session.isEmpty()) return;
 
         BuildSession run = session.get();
         run.tick(new McWorldView(mc.level), new McPlayerView(mc.player, reach.get()),
@@ -388,6 +394,40 @@ public final class SchemaPrinter extends Module {
                 status.placed(), status.remaining(), status.mismatched());
         }
         toggle();
+    }
+
+    /** Log file of the placement that is set right now (ARCHITECTURE.md §6). */
+    public Path placementLogFile() {
+        return FOLDER.resolve("placementlog-" + fileName(placement.get()) + ".jsonl");
+    }
+
+    /** Starts undoing the newest {@code count} entries; false if an undo is already running (P5-01). */
+    public boolean startUndo(List<PlacementLog.Entry> entries, int count) {
+        if (undo.map(UndoSession::running).orElse(false)) return false;
+        undo = Optional.of(new UndoSession(entries, count,
+            pos -> BlockUtils.breakBlock(pos, true), budget, note -> warning("%s", note)));
+        return true;
+    }
+
+    public Optional<UndoSession> undo() {
+        return undo;
+    }
+
+    public void cancelUndo() {
+        undo = Optional.empty();
+    }
+
+    private void tickUndo() {
+        if (undo.isEmpty()) return;
+        UndoSession session = undo.get();
+        if (!session.running()) {
+            info("Undo done: %d of %d block%s removed%s.", session.removedCount(), session.requestedCount(),
+                session.requestedCount() == 1 ? "" : "s",
+                session.skippedCount() == 0 ? "" : ", " + session.skippedCount() + " left alone");
+            undo = Optional.empty();
+            return;
+        }
+        session.tick(new McWorldView(mc.level), new McPlayerView(mc.player, reach.get()));
     }
 
     /** Pause, resume and status for the {@code .sf} commands; empty while no run is going on. */

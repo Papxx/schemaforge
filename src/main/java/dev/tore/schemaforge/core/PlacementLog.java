@@ -2,6 +2,11 @@ package dev.tore.schemaforge.core;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import dev.tore.schemaforge.SchemaForgeAddon;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -65,6 +70,38 @@ public final class PlacementLog {
     /** First write error; entries after it are only kept in memory. */
     public Optional<IOException> writeError() {
         return writeError;
+    }
+
+    /**
+     * Reads a log file back for undo (P5-01), oldest first. Lines that are broken, from another schema version or
+     * name a block this game does not know are skipped: one bad line must not cost the whole log.
+     */
+    public static List<Entry> readFrom(Path file, HolderLookup<Block> blocks) {
+        if (!Files.isRegularFile(file)) return List.of();
+        List<Entry> entries = new ArrayList<>();
+        try {
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                if (line.isBlank()) continue;
+                parse(line, blocks).ifPresent(entries::add);
+            }
+        } catch (IOException e) {
+            SchemaForgeAddon.LOG.warn("Could not read placement log {}", file, e);
+        }
+        return List.copyOf(entries);
+    }
+
+    private static Optional<Entry> parse(String line, HolderLookup<Block> blocks) {
+        try {
+            JsonObject json = JsonParser.parseString(line).getAsJsonObject();
+            if (json.get("v").getAsInt() != VERSION) return Optional.empty();
+            JsonArray pos = json.getAsJsonArray("pos");
+            BlockPos at = new BlockPos(pos.get(0).getAsInt(), pos.get(1).getAsInt(), pos.get(2).getAsInt());
+            BlockState state = BlockStateParser.parseForBlock(blocks, json.get("block").getAsString(), false).blockState();
+            return Optional.of(new Entry(at, state, json.get("temp").getAsBoolean(), json.get("t").getAsLong()));
+        } catch (CommandSyntaxException | RuntimeException e) {
+            SchemaForgeAddon.LOG.warn("Skipping unreadable placement log line: {}", line);
+            return Optional.empty();
+        }
     }
 
     /** One log line; {@code "v"} is the first field (ARCHITECTURE.md §6). */

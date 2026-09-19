@@ -24,6 +24,8 @@ public final class SfCommand extends Command {
         builder.then(StatusCommand.build());
         builder.then(ContainersCommand.build());
         builder.then(ScanCommand.build());
+        builder.then(MaterialsCommand.build());
+        builder.then(UndoCommand.build());
         builder.then(DebugCommands.build());
     }
 }
