@@ -40,6 +40,7 @@ dev.tore.schemaforge
 │   ├── MaterialsReport              Tabelle von .sf materials (P4-06)
 │   ├── UndoSession                  eigene Blöcke aus dem PlacementLog zurücknehmen (P5-01)
 │   ├── TempSupports                 temporäre Stützblöcke setzen und am Cluster-Ende abräumen (P5-02)
+│   ├── PacingProfile                VANILLA_LEGIT / FAST / CUSTOM → Blöcke je Tick, Intervall, Rotation-Spoof (P5-05)
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
@@ -504,6 +505,17 @@ public final class MaterialsReport {
     // missing = upcoming − inventory − containers, nie negativ. Sortiert: fehlende zuerst, dann größter Bedarf.
 }
 
+// P5-05. Paketpacing-Profile (PLAN 3.1 Punkt 5). SchemaPrinter liest das Profil bei jedem Budget-Reset; rotationSpoof
+// gilt ab dem nächsten Start (wie bisher).
+public enum PacingProfile {
+    VANILLA_LEGIT, FAST, CUSTOM;
+    public record Pacing(int blocksPerTick, int tickInterval, boolean rotationSpoof) {}
+    public static final Pacing LEGIT;                                // 1 / 1 / false
+    public static final Pacing FAST_PACING;                          // 4 / 1 / true
+    public Pacing resolve(Pacing custom);                            // CUSTOM → custom, sonst das Preset
+    public Optional<String> warning();                               // nur FAST: Hinweis auf Anti-Cheat
+}
+
 // P5-01. Nimmt die zuletzt gesetzten eigenen Blöcke zurück, neueste zuerst.
 public final class UndoSession {
     public interface Actions { boolean breakBlock(BlockPos pos); }
@@ -680,12 +692,12 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 | Filters | skipIfWorldIs / treatAsAir / neverPlace | BlockList | leer / grass,tall_grass / tnt |
 | Filters | substitutes | StringList `a->b,c` | leer |
 | Filters | ignoreProperties | StringList | waterlogged |
-| Placement | profile | enum VANILLA_LEGIT / FAST / CUSTOM | VANILLA_LEGIT |  ← P2-07: nicht angelegt, kommt mit P5-05
-| Placement | blocksPerTick / tickInterval | int 1–8 / int 1–20 | 1 / 1 |
+| Placement | profile | enum VANILLA_LEGIT / FAST / CUSTOM | VANILLA_LEGIT |  ← P5-05: `core/PacingProfile`; VANILLA_LEGIT = 1/1/aus, FAST = 4/1/an, CUSTOM = die drei Settings; Warnung im Chat bei FAST
+| Placement | blocksPerTick / tickInterval | int 1–8 / int 1–20 | 1 / 1 |  ← P5-05: nur bei profile CUSTOM sichtbar und wirksam
 | Placement | reach | double ≤ 4.5 | 4.5 |
 | Placement | lineOfSight | bool | true |
 | Placement | clickAdjacentOnly | bool | true |
-| Placement | rotationSpoof | bool | false |
+| Placement | rotationSpoof | bool | false |  ← P5-05: nur bei profile CUSTOM sichtbar und wirksam
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
 | Placement | handleFluids | bool | false |  ← P5-03; Wasser/Lava-Quellen per Eimer vom Nachbarblock
 | Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P3-03; Radius 0 schaltet die Spielerprüfung ab

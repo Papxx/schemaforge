@@ -544,7 +544,23 @@ Redstone-Staub. Build + 258 Tests grün.
 - `PrinterTest` (+2): falsch verbundene Schiene wird genau einmal gemeldet und nicht erneut gesetzt; richtige Form →
   keine Meldung.
 - In-game-Test **offen** → TESTLOG (Schienenstrecke mit Kurven und Steigung aus einer Schematic).
-### P5-05 · Profil FAST `todo` — `blocksPerTick` > 1, `rotationSpoof`, Warnung im Chat beim Aktivieren
+### P5-05 · Profil FAST `done` — `blocksPerTick` > 1, `rotationSpoof`, Warnung im Chat beim Aktivieren
+
+Stand 2026-09-19: `core/PacingProfile` (VANILLA_LEGIT / FAST / CUSTOM) mit `resolve(custom)` und `warning()`, ohne
+Minecraft-Abhängigkeit. VANILLA_LEGIT = 1 Block je Tick, jeder Tick, echte Rotation; FAST = 4 Blöcke je Tick mit
+Rotation-Spoof; CUSTOM = die Settings `blocks-per-tick`, `tick-interval`, `rotation-spoof`, die im GUI nur noch bei
+CUSTOM sichtbar sind. Neues Setting `profile` (Default VANILLA_LEGIT wie §7) in der Gruppe Placement. Das Budget liest
+das Profil bei jedem Reset, ein Wechsel greift also sofort; `rotation-spoof` gilt wie bisher ab dem nächsten Start.
+**Warnung im Chat** beim Umschalten auf FAST und bei jedem Start mit FAST (Hinweis auf Grim/Vulcan, PLAN 11.3). Das
+`onChanged` des Settings feuert auch beim Laden der Config (`Setting.fromTag`) – ohne Welt wird deshalb nicht gewarnt.
+- **Verhaltensänderung:** wer vorher `blocks-per-tick` oder `rotation-spoof` verstellt hatte, bekommt mit dem Default
+  VANILLA_LEGIT wieder 1 Block je Tick ohne Spoof, bis `profile` auf CUSTOM steht.
+- Die Zusatzpakete (eine Rotation je weiterer Platzierung im Tick, Sneak-Input) zählt das Budget weiterhin nicht mit
+  (Backlog aus P2-03/P2-07) – messen geht nur im Spiel.
+ARCHITECTURE.md §1/§4/§7 vorher ergänzt. Build + 262 Tests grün.
+- `PacingProfileTest` (4): VANILLA_LEGIT ignoriert die Custom-Werte, FAST > 1 Block mit Spoof, CUSTOM reicht durch,
+  nur FAST warnt.
+- In-game-Test **offen** → TESTLOG (FAST auf lokalem Paper: Blöcke/min, Ghost-Blocks, Warnung im Chat).
 ### P5-06 · EasyPlace-Protokoll nutzen `todo` — wenn V2/V3 erkannt: Property-Encoding im `hitVec` laut Carpet-Protokoll (Spezifikation aus `refs/meteor-client`? nein – aus Litematica-Quelle / PaperAccurateBlockPlacement-README ableiten, in ARCHITECTURE.md dokumentieren)
 ### P5-07 · Release `todo` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
 
@@ -644,6 +660,8 @@ Redstone-Staub. Build + 258 Tests grün.
   das Ergebnis im Spiel halten
 - Rails: die Reihenfolge gerade→Kurve gilt je Cluster. Liegt die Kurve in einem früheren Cluster als ihre geraden
   Nachbarn, kann sie falsch verbinden; dann hilft nur die Meldung (additive-only) bzw. die nächste Runde
+- P5-05 in-game nachholen: Profil FAST auf lokalem Paper, Blöcke/min gegen VANILLA_LEGIT, Ghost-Blocks zählen, und dabei
+  die Paketzahl je Platzierung messen (Rotation + Sneak) – dann entscheiden, ob das Budget sie mitzählen muss
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

@@ -15,6 +15,7 @@ import dev.tore.schemaforge.core.BuildSession;
 import dev.tore.schemaforge.core.HotbarSlots;
 import dev.tore.schemaforge.core.MaterialManager;
 import dev.tore.schemaforge.core.Navigator;
+import dev.tore.schemaforge.core.PacingProfile;
 import dev.tore.schemaforge.core.PlacementLog;
 import dev.tore.schemaforge.core.PlacementSolver;
 import dev.tore.schemaforge.core.PlanConfig;
@@ -140,20 +141,29 @@ public final class SchemaPrinter extends Module {
         .defaultValue("waterlogged")
         .build());
 
+    private final Setting<PacingProfile> profile = sgPlacement.add(new EnumSetting.Builder<PacingProfile>()
+        .name("profile")
+        .description("VANILLA_LEGIT: 1 block per tick, real rotation. FAST: 4 per tick, spoofed rotation (risky). CUSTOM: the settings below.")
+        .defaultValue(PacingProfile.VANILLA_LEGIT)
+        .onChanged(this::onProfileChanged)
+        .build());
+
     private final Setting<Integer> blocksPerTick = sgPlacement.add(new IntSetting.Builder()
         .name("blocks-per-tick")
-        .description("Actions per tick; above 1 sends several placements per tick (see the FAST profile, P5-05).")
+        .description("Actions per tick; above 1 sends several placements per tick. Profile CUSTOM only.")
         .defaultValue(1)
         .range(1, 8)
         .sliderRange(1, 4)
+        .visible(() -> profile.get() == PacingProfile.CUSTOM)
         .build());
 
     private final Setting<Integer> tickInterval = sgPlacement.add(new IntSetting.Builder()
         .name("tick-interval")
-        .description("Act only on every nth tick.")
+        .description("Act only on every nth tick. Profile CUSTOM only.")
         .defaultValue(1)
         .range(1, 20)
         .sliderRange(1, 10)
+        .visible(() -> profile.get() == PacingProfile.CUSTOM)
         .build());
 
     private final Setting<Double> reach = sgPlacement.add(new DoubleSetting.Builder()
@@ -178,8 +188,9 @@ public final class SchemaPrinter extends Module {
 
     private final Setting<Boolean> rotationSpoof = sgPlacement.add(new BoolSetting.Builder()
         .name("rotation-spoof")
-        .description("Only the server sees the rotation; the camera does not turn.")
+        .description("Only the server sees the rotation; the camera does not turn. Profile CUSTOM only.")
         .defaultValue(false)
+        .visible(() -> profile.get() == PacingProfile.CUSTOM)
         .build());
 
     private final Setting<String> allowedHotbarSlots = sgPlacement.add(new StringSetting.Builder()
@@ -368,7 +379,9 @@ public final class SchemaPrinter extends Module {
             planner, materials, budget, PlacementLog.toFile(FOLDER.resolve("placementlog-" + fileName(name) + ".jsonl")),
             new Printer.Options(supportsForRun(snapshot.get()), handleFluids.get(), note -> warning("%s", note)));
 
-        rotationSpoofInRun = rotationSpoof.get();
+        PacingProfile.Pacing pacing = pacing();
+        rotationSpoofInRun = pacing.rotationSpoof();
+        profile.get().warning().ifPresent(text -> warning("%s", text));
         tickCounter = 0;
         reportedShortages.clear();
         navigator.cancel();
@@ -570,9 +583,21 @@ public final class SchemaPrinter extends Module {
         return new SafetyMonitor.Config(pauseOnDamage.get(), minFood.get(), pausePlayerRadius.get());
     }
 
-    /** Full budget only on acting ticks; the interval setting is read every tick. */
+    /** Full budget only on acting ticks; profile and interval are read every tick. */
     private int budgetLimit() {
-        return tickCounter % tickInterval.get() == 0 ? blocksPerTick.get() : 0;
+        PacingProfile.Pacing pacing = pacing();
+        return tickCounter % pacing.tickInterval() == 0 ? pacing.blocksPerTick() : 0;
+    }
+
+    /** What the profile setting stands for right now (P5-05). */
+    private PacingProfile.Pacing pacing() {
+        return profile.get().resolve(new PacingProfile.Pacing(blocksPerTick.get(), tickInterval.get(), rotationSpoof.get()));
+    }
+
+    /** Warns when FAST is switched on; not while the config is loaded at start-up (no world then). */
+    private void onProfileChanged(PacingProfile changed) {
+        if (mc == null || mc.level == null) return;
+        changed.warning().ifPresent(text -> warning("%s", text));
     }
 
     /** Read on every placement, so a changed setting takes effect at once; broken text keeps the last valid value. */
