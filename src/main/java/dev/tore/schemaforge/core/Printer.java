@@ -35,9 +35,15 @@ public final class Printer {
      *
      * @param supports     temporary support blocks (P5-02); empty with additive-only on
      * @param handleFluids place water and lava sources with a bucket (P5-03)
+     * @param protocol     accurate placement the server understands (P5-06); NONE sends plain clicks
      * @param notes        user-facing one-liners
      */
-    public record Options(Optional<TempSupports> supports, boolean handleFluids, Consumer<String> notes) {
+    public record Options(Optional<TempSupports> supports, boolean handleFluids, EasyPlaceProtocol protocol,
+                          Consumer<String> notes) {
+        public Options(Optional<TempSupports> supports, boolean handleFluids, Consumer<String> notes) {
+            this(supports, handleFluids, EasyPlaceProtocol.NONE, notes);
+        }
+
         public static Options defaults() {
             return new Options(Optional.empty(), false, _ -> {
             });
@@ -213,8 +219,7 @@ public final class Printer {
     /** A step the player can send from where they stand, or empty if the task cannot be worked on right now. */
     private Optional<Step> step(BlockTask task, WorldView world, PlayerView player, InventoryView inv) {
         boolean fluid = task.kind() == TaskKind.FLUID;
-        // proto is evaluated from P5-06 on.
-        SolveResult result = fluid ? solver.solveFluid(task, world, player) : solver.solve(task, world, player, EasyPlaceProtocol.NONE);
+        SolveResult result = fluid ? solver.solveFluid(task, world, player) : solver.solve(task, world, player, options.protocol());
         if (result instanceof SolveResult.Ok(PlacementPlan plan)) {
             return reachable(plan, player) ? Optional.of(new Step(plan, task.pos(), task.target(), false, fluid)) : Optional.empty();
         }
@@ -232,7 +237,7 @@ public final class Printer {
         BlockState state = block.get().defaultBlockState();
         BlockTask supportTask = new BlockTask(at, state, world.getBlockState(at), TaskKind.PLACE,
             WorkPlanner.PRIORITY_FULL_BLOCK, SkipReason.NONE);
-        if (!(solver.solve(supportTask, world, player, EasyPlaceProtocol.NONE) instanceof SolveResult.Ok(PlacementPlan plan))) {
+        if (!(solver.solve(supportTask, world, player, options.protocol()) instanceof SolveResult.Ok(PlacementPlan plan))) {
             return Optional.empty();
         }
         return reachable(plan, player) ? Optional.of(new Step(plan, at, state, true, false)) : Optional.empty();

@@ -2,6 +2,7 @@ package dev.tore.schemaforge.modules;
 
 import dev.tore.schemaforge.SchemaForgeAddon;
 import dev.tore.schemaforge.compat.BaritoneBridge;
+import dev.tore.schemaforge.compat.EasyPlaceProtocol;
 import dev.tore.schemaforge.compat.LitematicaAdapter;
 import dev.tore.schemaforge.compat.McInventoryView;
 import dev.tore.schemaforge.compat.McPlayerView;
@@ -199,6 +200,12 @@ public final class SchemaPrinter extends Module {
         .defaultValue("2-8")
         .build());
 
+    private final Setting<Boolean> useAccuratePlacement = sgPlacement.add(new BoolSetting.Builder()
+        .name("use-accurate-placement")
+        .description("If Litematica reports the EasyPlace protocol V2 (Carpet) or V3 (Servux) as available, send block orientation in the click instead of turning the player.")
+        .defaultValue(true)
+        .build());
+
     private final Setting<Boolean> handleFluids = sgPlacement.add(new BoolSetting.Builder()
         .name("handle-fluids")
         .description("Place water and lava sources from the schematic with buckets, clicking a neighbour block.")
@@ -377,7 +384,8 @@ public final class SchemaPrinter extends Module {
         MaterialManager materials = new MaterialManager(this::currentHotbarSlots, this::onShortage);
         Printer printer = new Printer(new PlacementSolver(new SolverConfig(clickAdjacentOnly.get(), lineOfSight.get())),
             planner, materials, budget, PlacementLog.toFile(FOLDER.resolve("placementlog-" + fileName(name) + ".jsonl")),
-            new Printer.Options(supportsForRun(snapshot.get()), handleFluids.get(), note -> warning("%s", note)));
+            new Printer.Options(supportsForRun(snapshot.get()), handleFluids.get(), protocolForRun(),
+                note -> warning("%s", note)));
 
         PacingProfile.Pacing pacing = pacing();
         rotationSpoofInRun = pacing.rotationSpoof();
@@ -390,6 +398,16 @@ public final class SchemaPrinter extends Module {
         SafetyMonitor safety = new SafetyMonitor(this::safetyConfig);
         return Optional.of(new BuildSession(snapshot.get(), planner, printer, navigator, safety,
             System::currentTimeMillis, this::onStateChange, note -> warning("%s", note)));
+    }
+
+    /** Accurate placement protocol for this run (P5-06); NONE unless Litematica reports V2 or V3 and the setting allows it. */
+    private EasyPlaceProtocol protocolForRun() {
+        if (!useAccuratePlacement.get()) return EasyPlaceProtocol.NONE;
+        EasyPlaceProtocol protocol = LitematicaAdapter.detectedProtocol().orElse(EasyPlaceProtocol.NONE);
+        if (protocol != EasyPlaceProtocol.NONE) {
+            info("Using accurate placement %s: rotated blocks need no real rotation.", protocol);
+        }
+        return protocol;
     }
 
     /**

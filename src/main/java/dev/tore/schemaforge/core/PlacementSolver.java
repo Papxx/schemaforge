@@ -84,7 +84,6 @@ public final class PlacementSolver {
      * better candidate exists; the Printer checks that before sending (P2-03).
      */
     public SolveResult solve(BlockTask task, WorldView world, PlayerView player, EasyPlaceProtocol proto) {
-        // proto is evaluated from P5-06 on; until then every rotation-dependent block needs a real rotation.
         if (task.kind() != TaskKind.PLACE) return new SolveResult.Unsupported("not a PLACE task: " + task.kind());
         Optional<String> unsupported = unsupportedReason(task.target());
         if (unsupported.isPresent()) return new SolveResult.Unsupported(unsupported.get());
@@ -120,9 +119,12 @@ public final class PlacementSolver {
         float yaw = (float) Math.toDegrees(Math.atan2(-look.x, look.z));
         float pitch = (float) -Math.toDegrees(Math.atan2(look.y, look.horizontalDistance()));
         Optional<YawTarget> yawTarget = rule.yaw().apply(c.clickFace());
-        if (yawTarget.isPresent()) yaw = yawTarget.get().clamp(yaw);
+        // P5-06: with accurate placement the server takes the state from the hit vector instead of the look direction.
+        boolean encoded = yawTarget.isPresent() && AccuratePlacement.carriesRotation(proto, task.target());
+        if (yawTarget.isPresent() && !encoded) yaw = yawTarget.get().clamp(yaw);
+        Vec3 packetHit = encoded ? AccuratePlacement.encode(proto, task.target(), c.hitVec()) : c.hitVec();
         return new SolveResult.Ok(new PlacementPlan(c.clickPos(), c.clickFace(), c.hitVec(), Mth.wrapDegrees(yaw), pitch,
-            yawTarget.isPresent(), item, true));
+            yawTarget.isPresent() && !encoded, item, true, packetHit));
     }
 
     /**

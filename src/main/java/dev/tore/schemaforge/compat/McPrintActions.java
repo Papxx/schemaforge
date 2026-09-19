@@ -38,7 +38,8 @@ public final class McPrintActions implements PrintActions {
     @Override
     public boolean place(PlacementPlan plan, int hotbarSlot) {
         if (mc.player == null || mc.gameMode == null || mc.getConnection() == null) return false;
-        BlockHitResult hit = new BlockHitResult(plan.hitVec(), plan.clickFace(), plan.clickPos(), false);
+        // The packet carries the encoded hit with accurate placement (P5-06); the rotation still looks at the real one.
+        BlockHitResult hit = new BlockHitResult(plan.packetHitVec(), plan.clickFace(), plan.clickPos(), false);
         Rotations.rotate(plan.yaw(), plan.pitch(), ROTATION_PRIORITY, !rotationSpoof, () -> click(hit, hotbarSlot, plan.sneak()));
         return true;
     }

@@ -561,7 +561,30 @@ ARCHITECTURE.md §1/§4/§7 vorher ergänzt. Build + 262 Tests grün.
 - `PacingProfileTest` (4): VANILLA_LEGIT ignoriert die Custom-Werte, FAST > 1 Block mit Spoof, CUSTOM reicht durch,
   nur FAST warnt.
 - In-game-Test **offen** → TESTLOG (FAST auf lokalem Paper: Blöcke/min, Ghost-Blocks, Warnung im Chat).
-### P5-06 · EasyPlace-Protokoll nutzen `todo` — wenn V2/V3 erkannt: Property-Encoding im `hitVec` laut Carpet-Protokoll (Spezifikation aus `refs/meteor-client`? nein – aus Litematica-Quelle / PaperAccurateBlockPlacement-README ableiten, in ARCHITECTURE.md dokumentieren)
+### P5-06 · EasyPlace-Protokoll nutzen `done` — wenn V2/V3 erkannt: Property-Encoding im `hitVec` laut Carpet-Protokoll (Spezifikation aus `refs/meteor-client`? nein – aus Litematica-Quelle / PaperAccurateBlockPlacement-README ableiten, in ARCHITECTURE.md dokumentieren)
+
+Stand 2026-09-19: Protokoll aus Litematica 0.28.8 per `javap -c` nachgelesen (Client-Seite
+`EasyPlaceUtils.applyCarpetProtocolHitVec` / `applyPlacementProtocolV3`, Server-Seite
+`PlacementHandler.applyPlacementProtocolV2/V3` samt Whitelist, MaLiLib `BlockUtils.getFirstDirectionProperty`) und in
+`core/AccuratePlacement` eigenständig implementiert; das Layout steht jetzt in ARCHITECTURE.md §4. Kurz: beide
+Versionen verschieben nur `hitVec.x` um eine ganze Zahl ≥ 2. V2 (Carpet) sendet Richtung bzw. Achse plus 16 für obere
+Hälfte / subtrahierenden Comparator / je Repeater-Verzögerung, V3 (Litematica/Servux) ein Bitfeld aus Richtung und allen
+Whitelist-Properties nach Namen. Neue Komponente `PlacementPlan.packetHitVec` (Zusatzkonstruktor mit den alten acht
+Feldern → `packetHitVec = hitVec`): Blick, Reichweite und Sicht prüfen weiter den echten Punkt, nur `McPrintActions`
+schickt den kodierten. Der Solver kodiert nur, wenn die Regel eine Blickvorgabe hat **und** das Protokoll die
+betroffene Property trägt (`carriesRotation`) – dann entfällt das Einklemmen des Yaw und `requiresRealRotation` wird
+false. Türen bleiben unter V2 bei echter Rotation: Vanilla liest das Scharnier aus `hit.x - pos.x`, und V2 sendet das
+Scharnier nicht. Blöcke ohne Blickvorgabe (Stein, Stufen) gehen unverändert raus. Neues Setting
+`use-accurate-placement` (an); wirksam nur, wenn `LitematicaAdapter.detectedProtocol()` V2 oder V3 meldet, dann eine
+Chat-Zeile beim Start. `Printer.Options.protocol` (Zusatzkonstruktor ohne Protokoll → NONE). Build + 274 Tests grün.
+- `AccuratePlacementTest` (9): ohne Protokoll unverändert; nur x ändert sich, um eine ganze Zahl ≥ 2; V2 Richtung +
+  16 für oben; V2 Achse (auch Achse X = Code 0 wird gesendet) und Repeater-Verzögerung; V2 lässt Stein in Ruhe; V3
+  Bitfeld einer Treppe von Hand aus Enum-Ordinalen gerechnet; V3 Schild-Rotation als 4-Bit-Feld; V3 lässt Blöcke ohne
+  Whitelist-Property in Ruhe; welches Protokoll welche Rotation trägt.
+- `PlacementSolverTest` (+3): Treppe mit V3 ohne Drehung und mit kodiertem Paket-Treffer, echter Treffer bleibt;
+  Stein bleibt unkodiert; Tür unter V2 mit echter Rotation.
+- In-game-Test **offen** → TESTLOG: braucht einen Server mit Carpet (`accurateBlockPlacement true`) bzw. Servux; auf einem
+  Vanilla-Server meldet Litematica kein V2/V3 und es ändert sich nichts.
 ### P5-07 · Release `todo` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
 
 ---
@@ -662,6 +685,11 @@ ARCHITECTURE.md §1/§4/§7 vorher ergänzt. Build + 262 Tests grün.
   Nachbarn, kann sie falsch verbinden; dann hilft nur die Meldung (additive-only) bzw. die nächste Runde
 - P5-05 in-game nachholen: Profil FAST auf lokalem Paper, Blöcke/min gegen VANILLA_LEGIT, Ghost-Blocks zählen, und dabei
   die Paketzahl je Platzierung messen (Rotation + Sneak) – dann entscheiden, ob das Budget sie mitzählen muss
+- P5-06 in-game nachholen: Treppen, Öfen, Knöpfe, Falltüren, Schilder, Schienen mit Carpet `accurateBlockPlacement`
+  (V2) und mit Servux (V3); prüfen, dass der Server die kodierte Richtung übernimmt und keine Klicks wegen der
+  Treffer-Entfernung ablehnt
+- `AccuratePlacement`: unter V3 könnten auch Kurvenschienen, offene Türen/Falltüren (`open`) und Doppelstufen direkt
+  kodiert werden – bisher kodiert der Solver nur, wo sonst eine echte Rotation nötig wäre
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

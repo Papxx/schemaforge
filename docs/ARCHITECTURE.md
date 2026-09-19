@@ -41,6 +41,7 @@ dev.tore.schemaforge
 │   ├── UndoSession                  eigene Blöcke aus dem PlacementLog zurücknehmen (P5-01)
 │   ├── TempSupports                 temporäre Stützblöcke setzen und am Cluster-Ende abräumen (P5-02)
 │   ├── PacingProfile                VANILLA_LEGIT / FAST / CUSTOM → Blöcke je Tick, Intervall, Rotation-Spoof (P5-05)
+│   ├── AccuratePlacement            EasyPlace-Protokoll V2/V3: Blockzustand in hitVec.x kodieren (P5-06)
 │   ├── RestockProcess               State-Machine für 3.4 im Plan
 │   ├── PlacementLog                 eigene Platzierungen (für Undo, Temp-Blöcke)
 │   ├── MaterialRules                BlockState → benötigtes Item + Anzahl; materialTotals (P1-02)
@@ -110,8 +111,12 @@ public record PlanConfig(
 public record PlacementPlan(
     BlockPos clickPos, Direction clickFace, Vec3 hitVec,
     float yaw, float pitch, boolean requiresRealRotation,   // true bei Rotationsblöcken ohne Accurate-Placement
-    Item handItem, boolean sneak
-) {}
+    Item handItem, boolean sneak,
+    Vec3 packetHitVec                                       // P5-06: was im Use-Paket steht; ohne Protokoll = hitVec
+) {
+    public PlacementPlan(/* die ersten acht */);            // packetHitVec = hitVec
+}
+// P5-06: hitVec bleibt der echte Punkt auf der Fläche (Blick, Reichweite, Sicht); nur McPrintActions schickt packetHitVec.
 
 public sealed interface SolveResult permits SolveResult.Ok, SolveResult.NeedsSupport, SolveResult.Unsupported {
     record Ok(PlacementPlan plan) implements SolveResult {}
@@ -298,7 +303,7 @@ public final class PlacementSolver {
     //  dann Nachbar vor Airplace, dann Abstand. Reichweite/Sicht des gewählten Plans prüft der Printer (P2-03) erneut.
     //  Kein Kandidat → NeedsSupport(unter dem Ziel; bei oberer Hälfte über dem Ziel; bei X/Z-Pillar westlich/nördlich).
     //  sneak immer true (verhindert, dass ein Klick eine GUI/Tür des Nachbarn bedient). yaw/pitch = Blick auf hitVec.
-    //  proto wird erst in P5-06 ausgewertet.
+    //  proto: siehe AccuratePlacement (P5-06).
     // P2-04 Regeln (abhängige Blöcke, Vanilla 26.2 nachgelesen). Kein Airplace außer Teppich (Klick auf die Zielposition
     //  ordnet getNearestLookingDirections nach Blick → nicht planbar). Klick auf einen Nachbarn setzt dessen Richtung zuerst.
     //  Torch/RedstoneTorch stehend: Seite UP · WallTorch/RedstoneWallTorch, Ladder, WallSign (FACING F): Seite F
@@ -350,7 +355,7 @@ public final class Printer {
 
 // P5-02/P5-03/P5-04/P5-06. Zusätze des Printers; der alte Konstruktor ohne Options nutzt defaults().
 public record Printer.Options(Optional<TempSupports> supports, boolean handleFluids, EasyPlaceProtocol protocol,
-                              Consumer<String> notes) {
+                              Consumer<String> notes) {   // protocol seit P5-06
     public static Options defaults();                                // keine Stützblöcke, keine Fluids, NONE, Notizen verworfen
 }
 // Printer(solver, planner, materials, budget, log, options).
@@ -504,6 +509,34 @@ public final class MaterialsReport {
     public static List<String> lines(List<Row> rows);                // Kopfzeile, Zeilen, Summenzeile
     // missing = upcoming − inventory − containers, nie negativ. Sortiert: fehlende zuerst, dann größter Bedarf.
 }
+
+// P5-06. Accurate Block Placement („EasyPlace-Protokoll“). Nachgelesen per javap in Litematica 0.28.8
+// (fi.dy.masa.litematica.util.EasyPlaceUtils.applyCarpetProtocolHitVec / applyPlacementProtocolV3, Gegenstück
+// PlacementHandler.applyPlacementProtocolV2/V3, MaLiLib BlockUtils.getFirstDirectionProperty) und eigenständig
+// implementiert. Beide Versionen verschieben nur hitVec.x um eine ganze Zahl ≥ 2; y und z bleiben, der Anteil hinter dem
+// Komma auch. Der Server braucht Carpet (accurateBlockPlacement), Servux oder ein Paper-Plugin, das den Wert auswertet
+// und die Entfernungsprüfung für hitVec lockert – ein Vanilla-Server lehnt solche Klicks ab.
+//  „erste Richtungs-Property“ = erste EnumProperty mit Werttyp Direction in state.getProperties() (StateDefinition,
+//   nach Namen sortiert).
+//  V2 (Carpet): code = erste Richtung.get3DDataValue(), sonst AXIS.ordinal(); dazu genau eines von: Repeater + DELAY·16,
+//   Comparator SUBTRACT + 16, HALF=TOP + 16, SLAB_TYPE=TOP + 16. Nur wenn code ≠ 0 oder Richtung/Achse vorhanden:
+//   x' = x + 2 + 2·code.
+//  V3 (Litematica/Servux): value = 0, shift = 1. Erste Richtungs-Property (außer VERTICAL_DIRECTION):
+//   value |= get3DDataValue << shift, shift += 3. Dann alle übrigen Properties nach Namen sortiert, sofern auf der
+//   Whitelist (inverted, open, attachment, axis, half, face, type(chest), mode(comparator), hinge, facing, orientation,
+//   shape(rail/rail straight), type(slab), shape(stairs), copper_golem_pose, bites, delay, note, rotation) und nicht
+//   waterlogged/powered: Werte natürlich sortiert, bits = log2(nächste Zweierpotenz ≥ Anzahl), value |= index << shift,
+//   shift += bits. Mindestens eine Property kodiert → x' = x + 2 + value.
+public final class AccuratePlacement {
+    public static Vec3 encode(EasyPlaceProtocol proto, BlockState state, Vec3 hit);   // NONE → hit unverändert
+    public static boolean carriesRotation(EasyPlaceProtocol proto, BlockState state);
+    //  V2: erste Richtungs-Property vorhanden, keine Tür (Vanilla-Scharnier liest hitVec.x - pos.x, der wäre ≥ 2).
+    //  V3: erste Richtungs-Property, ROTATION_16 (Schilder) oder eine Schienenform. NONE: nie.
+}
+// PlacementSolver.solve(…, proto): hat die Regel eine Blickvorgabe und carriesRotation(proto, target), wird der Yaw nicht
+//  eingeklemmt, requiresRealRotation = false und packetHitVec = encode(proto, target, hitVec). Sonst wie bisher.
+// Printer.Options.protocol, SchemaPrinter: Setting use-accurate-placement (true) → LitematicaAdapter.detectedProtocol()
+//  beim Start, sonst NONE; V2/V3 wird beim Start im Chat genannt.
 
 // P5-05. Paketpacing-Profile (PLAN 3.1 Punkt 5). SchemaPrinter liest das Profil bei jedem Budget-Reset; rotationSpoof
 // gilt ab dem nächsten Start (wie bisher).
@@ -700,6 +733,7 @@ placed, blocks/min, mismatched, remaining), ohne Lauf der letzte Status oder „
 | Placement | rotationSpoof | bool | false |  ← P5-05: nur bei profile CUSTOM sichtbar und wirksam
 | Placement | allowedHotbarSlots | String `2-8` | 2-8 |
 | Placement | handleFluids | bool | false |  ← P5-03; Wasser/Lava-Quellen per Eimer vom Nachbarblock
+| Placement | useAccuratePlacement | bool | true |  ← P5-06; nur wirksam, wenn Litematica V2/V3 als effektives Protokoll meldet
 | Safety | pauseOnDamage / minFood / pausePlayerRadius | bool / int / int | true / 6 / 16 |  ← P3-03; Radius 0 schaltet die Spielerprüfung ab
 | Supports | tempSupports / supportBlocks | bool / BlockList | false / dirt, cobblestone, netherrack |  ← P5-02; nur sichtbar und wirksam mit additiveOnly=false
 

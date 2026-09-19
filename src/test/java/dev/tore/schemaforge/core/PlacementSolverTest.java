@@ -340,6 +340,47 @@ class PlacementSolverTest {
         }
     }
 
+    // --- P5-06 accurate placement -------------------------------------------------------------------
+
+    /** With V3 a stair facing away from the player needs no turn: the look stays on the hit, the state rides in x. */
+    @Test
+    void withAccuratePlacementStairsKeepTheLookAndSendTheEncodedHit() {
+        BlockState stairs = Blocks.OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.NORTH);
+        FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
+        BlockTask task = new BlockTask(POS, stairs, Blocks.AIR.defaultBlockState(), TaskKind.PLACE, WorkPlanner.PRIORITY_BLOCK, SkipReason.NONE);
+
+        PlacementPlan plain = assertInstanceOf(SolveResult.Ok.class,
+            solver(true).solve(task, floor, NORTH_OF_TARGET, EasyPlaceProtocol.NONE)).plan();
+        assertTrue(plain.requiresRealRotation());
+        assertEquals(Direction.NORTH, Direction.fromYRot(plain.yaw()), "vanilla: stairs face where the player looks");
+        assertEquals(plain.hitVec(), plain.packetHitVec());
+
+        PlacementPlan accurate = assertInstanceOf(SolveResult.Ok.class,
+            solver(true).solve(task, floor, NORTH_OF_TARGET, EasyPlaceProtocol.V3_SERVUX)).plan();
+        assertFalse(accurate.requiresRealRotation());
+        assertEquals(Direction.SOUTH, Direction.fromYRot(accurate.yaw()), "looks straight at the hit, no turn");
+        assertEquals(plain.hitVec(), accurate.hitVec(), "reach and sight use the real point");
+        assertEquals(AccuratePlacement.encode(EasyPlaceProtocol.V3_SERVUX, stairs, accurate.hitVec()), accurate.packetHitVec());
+    }
+
+    @Test
+    void accuratePlacementLeavesBlocksWithoutRotationAlone() {
+        BlockTask task = new BlockTask(POS, STONE, Blocks.AIR.defaultBlockState(), TaskKind.PLACE, WorkPlanner.PRIORITY_FULL_BLOCK, SkipReason.NONE);
+        PlacementPlan plan = assertInstanceOf(SolveResult.Ok.class,
+            solver(true).solve(task, new FakeWorld().set(POS.below(), STONE), NORTH_OF_TARGET, EasyPlaceProtocol.V3_SERVUX)).plan();
+        assertEquals(plan.hitVec(), plan.packetHitVec());
+    }
+
+    @Test
+    void v2KeepsTheRealRotationForDoors() {
+        BlockState door = Blocks.OAK_DOOR.defaultBlockState().setValue(DoorBlock.FACING, Direction.SOUTH);
+        BlockTask task = new BlockTask(POS, door, Blocks.AIR.defaultBlockState(), TaskKind.PLACE, WorkPlanner.PRIORITY_DEPENDENT, SkipReason.NONE);
+        PlacementPlan plan = assertInstanceOf(SolveResult.Ok.class,
+            solver(true).solve(task, new FakeWorld().set(POS.below(), STONE), NORTH_OF_TARGET, EasyPlaceProtocol.V2_CARPET)).plan();
+        assertTrue(plan.requiresRealRotation());
+        assertEquals(plan.hitVec(), plan.packetHitVec());
+    }
+
     // --- P5-04 rails --------------------------------------------------------------------------------
 
     /** Vanilla BaseRailBlock.getStateForPlacement: EAST_WEST when the player faces east or west, else NORTH_SOUTH. */
