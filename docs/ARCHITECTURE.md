@@ -397,12 +397,25 @@ public final record BuildCheckpoint(int v, int clusterIndex, int placedCount, lo
 // P3-04. PlanConfig.fingerprint(): kanonischer Text aus sortierten Registry-Namen – Block.hashCode ist
 //  identitätsbasiert und würde nach jedem Spielstart einen anderen Hash ergeben.
 
+// P4-01. Merkt sich nur, was gesehen wurde; Container öffnen und füllen ist P4-02/P4-03. Nur Client-Thread.
 public final class ContainerIndex {
-    public record Entry(BlockPos pos, ContainerType type, long lastSeenEpochMs, Map<Item,Integer> items, boolean stale) {}
-    public void learn(BlockPos pos, ContainerType type, Map<Item,Integer> items);
+    public record Entry(BlockPos pos, ContainerType type, long lastSeenEpochMs, Map<Item,Integer> items, boolean stale) {
+        public int count(Item item);                                 // 0 wenn nicht enthalten
+    }
+    public static final int VERSION = 1;
+    public ContainerIndex();                                         // Uhr = System::currentTimeMillis
+    public ContainerIndex(LongSupplier clockMs);                     // Test: altern ohne Warten
+    public void learn(BlockPos pos, ContainerType type, Map<Item,Integer> items);   // ersetzt den Eintrag, stale wieder false
     public List<Entry> sourcesFor(Item item, Vec3 from);             // nach Distanz sortiert, stale zuletzt
     public void markStale(Duration olderThan);
-    public void save(Path file); public static ContainerIndex load(Path file);
+    public List<Entry> entries(); public Optional<Entry> at(BlockPos pos); public int size();
+    public boolean forget(BlockPos pos);                             // P4-04: Kiste weg oder leer
+    public void save(Path file);                                     // Schreibfehler werden geloggt, nie geworfen
+    public static ContainerIndex load(Path file);                    // leerer Index bei fehlender/kaputter/fremder Version
+    public static ContainerIndex load(Path file, LongSupplier clockMs);
+    // Datei: {"v":1,"containers":[{"pos":[x,y,z],"type":"CHEST","lastSeen":<ms>,"stale":false,
+    //   "items":{"minecraft:stone":64}}]}. Unbekannte Item-Ids und Container-Typen werden übersprungen und
+    //   geloggt, statt die ganze Datei zu verwerfen.
 }
 
 public final class RestockProcess {

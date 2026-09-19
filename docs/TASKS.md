@@ -290,16 +290,48 @@ Build + 174 Tests grün.
   gestoppter Lauf zeigt STOPPED statt BUILDING.
 - AK1 **offen**: Platzieren im HUD-Editor ist ein In-game-AK → TESTLOG.
 
-### P3-06 · Dauerlauf-Test `todo`
+### P3-06 · Dauerlauf-Test `blocked`
 - AK1 Manuell: 60×60×30-Schematic, 30 min unbeaufsichtigt auf Testserver → kein Stillstand > 60 s ohne PAUSED-Grund; Ergebnis in TESTLOG
+
+Stand 2026-09-19: **vorbereitet, nicht ausgeführt** – das Ticket besteht nur aus einem 30-Minuten-Lauf im Spiel, den
+Claude nicht selbst fahren kann. Blockiert auf den Nutzer.
+- `tools/gen_endurance_schematic.py` erzeugt `test/endurance.litematic` (eingecheckt, 833 B): 60×60×30, volle
+  Steinfläche auf y=0, darüber hohle Wände auf einem 15er-Raster mit Brett-Bändern auf y=4/14/24. Hohl, damit der
+  Printer laufen muss statt an einer Stelle zu stehen; nur Stein und Eichenbretter, damit ein Abbruch am Material
+  liegt und nicht an einer fehlenden Platzierungsregel. **17 056 Blöcke** (15 664 Stein, 1 392 Bretter) ≈ 9,9
+  Shulker – bei 1 Block/Tick sind das über 14 min reine Platzierungen, mit Laufwegen deutlich mehr als 30 min.
+- Ablauf für den Lauf: Schematic in Litematica laden und platzieren · `BuildResume` an (P3-04) · Material in Kisten
+  oder Kreativ · `.sf start endurance` · 30 min laufen lassen · danach `.sf status`, TESTLOG-Zeile, und im Log auf
+  Stillstände ohne PAUSED-Grund achten.
+- Die Datei wurde mit demselben litemapy-Setup wie `blockclasses.litematic` erzeugt, aber **nicht** gegen Litematicas
+  Parser gegengeprüft (das war bei P1-04 ein eigener Schritt). Lädt sie nicht, ist das der erste Befund des Tickets.
 
 ---
 
 ## Phase 4 – Container-Restock
 
-### P4-01 · `ContainerIndex` + Persistenz `todo`
+### P4-01 · `ContainerIndex` + Persistenz `done`
 - AK1 Unit-Tests: learn/sourcesFor/markStale/save/load Roundtrip
 - AK2 Gson-Datei entspricht ARCHITECTURE.md §6, `"v":1`
+
+Stand 2026-09-19: `ContainerIndex` als Map Position → `Entry` (Einfügereihenfolge, damit die Datei zwischen Läufen
+stabil bleibt). `learn` ersetzt den Eintrag und macht ihn wieder frisch, `sourcesFor` filtert auf Container, die das
+Item wirklich führen, und sortiert erst nach `stale`, dann nach Abstand; `markStale` altert nur Einträge, die älter
+sind als die Grenze. Uhr als `LongSupplier` im Konstruktor, damit Tests altern können ohne zu warten. Dazu
+`entries()`, `at()`, `size()` und `forget()` (für P4-04, wenn eine Kiste leer oder verschwunden ist). Persistenz per
+Gson über kleine DTO-Klassen statt direkter Serialisierung von `BlockPos`/`Item`: Positionen als `[x,y,z]`, Items als
+Registry-Id. Unbekannte Item-Ids und Container-Typen werden übersprungen und geloggt, statt die ganze Datei zu
+verwerfen – ein Mod weniger soll nicht den kompletten Kisten-Index kosten. `Identifier.tryParse` +
+`BuiltInRegistries.ITEM.getValue` wie in `Substitutes` (Luft = unbekannt). ARCHITECTURE.md §4 vorher ergänzt.
+Build + 183 Tests grün.
+- AK1 erfüllt: `ContainerIndexTest` (9) – learn merkt Inhalt und Zeitpunkt, erneutes learn ersetzt statt zu mischen und
+  löscht `stale`, `sourcesFor` nach Abstand mit stale zuletzt, `markStale` trifft nur alte Einträge, `forget`,
+  save/load-Roundtrip mit `assertEquals` über alle Einträge.
+- AK2 erfüllt: `theFileStartsWithTheSchemaVersionAndUsesItemIds` – `{"v":1,` zuerst, `"minecraft:stone": 64`,
+  `"type": "CHEST"`, `"pos":[5,64,0]`. Dazu: fehlende/kaputte/fremde Version → leerer Index, unbekannte Ids werden
+  übersprungen ohne den Rest zu verlieren.
+- Der Dateiname `containers-<serverHash>-<dimension>.json` wird erst mit P4-02 gebildet; der Index selbst kennt nur
+  den Pfad, den er bekommt.
 
 ### P4-02 · Passives Lernen `todo`
 Listener auf Container-Screen open/close (Meteor-Event oder eigener Hook – Vorbild: Auto-Steal in `InventoryTweaks` erkennt den Container über `InventoryEvent` + `containerMenu.getType()`, siehe `docs/NOTES-meteor-api.md` Punkt 5); Container-Position aus letztem Rechtsklick-Ziel; Inhalt beim Schließen in Index.
@@ -394,6 +426,8 @@ Item | Bedarf gesamt | nächste N Cluster | Inventar | in bekannten Kisten.
 - P3-05 AK1 in-game nachholen: Element im Meteor-HUD-Editor platzieren, Werte während eines Laufs gegenprüfen
 - `BuildProgressHud`: die ETA rechnet mit der Durchschnittsrate des ganzen Laufs; nach einer langen Pause ist sie
   zu pessimistisch. Ggf. gleitendes Mittel der letzten Minute
+- P4-01: `ContainerIndex` ist gebaut, aber noch nirgends angeschlossen – Dateiname (`containers-<serverHash>-<dimension>`),
+  Laden beim Welt-Beitritt und Speichern beim Verlassen kommen mit P4-02
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)
