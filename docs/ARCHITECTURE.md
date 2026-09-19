@@ -85,7 +85,8 @@ public enum TaskKind { PLACE, BREAK, FLUID, SKIP }
 // P1-03: Grund eines SKIP-Tasks; NONE bei allen anderen Arten.
 public enum SkipReason { NONE, CHUNK_NOT_LOADED, NEVER_PLACE, WORLD_FILTER, MISMATCH_ADDITIVE_ONLY }
 
-// priority: höher = früher. BREAK 400 > voller Block 300 > sonstiger Block 200 > abhängiger Block 100 > FLUID 50 > SKIP 0
+// priority: höher = früher. BREAK 400 > voller Block 300 > sonstiger Block 200 > abhängiger Block 100
+//   > Schienenkurve 90 (P5-04) > FLUID 50 > SKIP 0
 // (Konstanten in WorkPlanner). Abhängig = braucht Träger: Fackel, Knopf/Hebel, Schiene, Teppich, Tür, Schild, Banner,
 // Leiter, Ranke, Druckplatte, Redstone, Repeater/Comparator, Pflanzen, obere Stufe ohne Nachbar oben/seitlich.
 public record BlockTask(BlockPos pos, BlockState target, BlockState current, TaskKind kind, int priority, SkipReason skipReason) {}
@@ -252,6 +253,8 @@ public final class WorkPlanner {
     // Ein Cluster kann nur SKIP-Tasks enthalten (z. B. „mismatched“) – der Navigator (P3-02) muss solche nicht anlaufen.
     // Cluster-Reihenfolge: Würfel-Schicht entlang layerAxis/layerAscending, darin Nearest-Neighbor ab start.
     // Task-Reihenfolge im Cluster: priority absteigend, dann Schicht, dann Nearest-Neighbor (Cursor läuft über alle Cluster weiter).
+    // P5-04: Schienen mit Kurvenform bekommen PRIORITY_RAIL_CURVE (90) statt 100 – erst liegen die geraden Stücke, an die
+    //  sich eine Kurve beim Platzieren anschließt.
     public List<BlockTask> refresh(Cluster c, WorldView world);      // Ist-Zustand neu einlesen
     // P2-03: dieselben Regeln je Task von c (target bleibt), erledigte Positionen entfallen, Reihenfolge von c bleibt.
     //  Priorität: war der Task schon PLACE, bleibt sie; sonst neu berechnet, Träger nur aus der Welt (kein Snapshot).
@@ -307,7 +310,12 @@ public final class PlacementSolver {
     //    NeedsSupport(unten) – entsteht mit der unteren
     //  Door/TrapDoor OPEN=true ohne POWERED → Unsupported („opened by hand“)
     //  Carpet: jede Seite, Airplace erlaubt; Block darunter Luft → NeedsSupport(unten)
-    //  StandingSign ROTATION r: Seite UP, Yaw = r·22,5° − 180° (±11°, RotationSegment) · Hängeschilder, Schienen u. a. weiter Unsupported
+    //  StandingSign ROTATION r: Seite UP, Yaw = r·22,5° − 180° (±11°, RotationSegment) · Hängeschilder u. a. weiter Unsupported
+    // P5-04 Schienen (BaseRailBlock, 26.2 nachgelesen): getStateForPlacement setzt EAST_WEST bei Blick nach Ost/West, sonst
+    //  NORTH_SOUTH; danach verbindet onPlace/updateState mit den Nachbarschienen (Kurven, Steigungen) – die Form ist nicht
+    //  direkt wählbar. Regel: jede Nachbarfläche (Schiene landet immer auf pos), kein Airplace; Block darunter ohne feste
+    //  Oberseite → NeedsSupport(unten). Gerade und ansteigende Formen: Yaw entlang der Achse (Nord oder Süd bzw. Ost oder
+    //  West, je nachdem was näher am Blick liegt, ±44°) → requiresRealRotation. Kurven: kein Yaw, die Nachbarn entscheiden.
     //  NeedsSupport bei Wandblöcken = Nachbar hinter FACING, bei CEILING/TrapDoor TOP = oben, sonst unten.
     public static Optional<String> unsupportedReason(BlockState target); // unabhängig von Welt/Spieler; leer = Regel vorhanden (für .sf preview)
     public static boolean standsWithoutSupport(BlockState target);   // P5-02
@@ -356,6 +364,10 @@ public record Printer.Options(Optional<TempSupports> supports, boolean handleFlu
 //  Quellblock-Check: der nächste refresh sieht fließendes Wasser als Luft → der Task bleibt offen, bis dort eine Quelle
 //  steht oder die Versuche aufgebraucht sind. works(task) = PLACE oder (FLUID und handleFluids) – BuildSession nutzt es
 //  für Cluster-Auswahl, Reichweite und remaining.
+// P5-04 Verifier-Gegencheck: jede gesendete Schiene wird gemerkt; zu Beginn jedes Durchlaufs und am Cluster-Ende wird
+//  die Form in der Welt mit dem Ziel verglichen. Steht dort die Schiene mit anderer Form (Vanilla hat sie anders
+//  verbunden), geht einmal je Position eine Meldung über notes raus („rail at x y z connected as a, schematic wants b“).
+//  Korrigiert wird nichts: additive-only lässt sie stehen (mismatched), sonst plant die nächste Runde BREAK.
 
 // P5-02. Temporäre Stützblöcke; nur mit additiveOnly=false (SchemaPrinter legt sonst keine an, der Printer hat dann
 // keinen Weg zu brechen).

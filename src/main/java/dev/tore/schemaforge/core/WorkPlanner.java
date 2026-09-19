@@ -45,6 +45,8 @@ public final class WorkPlanner {
     public static final int PRIORITY_FULL_BLOCK = 300;
     public static final int PRIORITY_BLOCK = 200;
     public static final int PRIORITY_DEPENDENT = 100;
+    /** Curved rails after the straight ones they connect to (P5-04). */
+    public static final int PRIORITY_RAIL_CURVE = 90;
     public static final int PRIORITY_FLUID = 50;
     public static final int PRIORITY_SKIP = 0;
 
@@ -150,6 +152,7 @@ public final class WorkPlanner {
     }
 
     private int placePriority(BlockPos pos, BlockState target, Function<BlockPos, BlockState> planned, WorldView world) {
+        if (isRailCurve(target)) return PRIORITY_RAIL_CURVE;
         if (isDependent(pos, target, planned, world)) return PRIORITY_DEPENDENT;
         return target.isCollisionShapeFullBlock(EmptyBlockGetter.INSTANCE, BlockPos.ZERO) ? PRIORITY_FULL_BLOCK : PRIORITY_BLOCK;
     }
@@ -171,6 +174,15 @@ public final class WorkPlanner {
             || block instanceof RedStoneWireBlock
             || block instanceof DiodeBlock
             || block instanceof VegetationBlock;
+    }
+
+    /** A curved rail only comes out right if the rails it connects to are already there (P5-04). */
+    static boolean isRailCurve(BlockState target) {
+        if (!(target.getBlock() instanceof BaseRailBlock rail)) return false;
+        return switch (target.getValue(rail.getShapeProperty())) {
+            case SOUTH_EAST, SOUTH_WEST, NORTH_WEST, NORTH_EAST -> true;
+            default -> false;
+        };
     }
 
     /** A top slab can be clicked into place from the block above or from a side neighbor. */

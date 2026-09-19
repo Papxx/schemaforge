@@ -520,7 +520,30 @@ ergänzt. Build + 251 Tests grün.
 - `BuildSessionTest` (+1): Cluster nur mit Wasser wird mit `handle-fluids` angelaufen, ohne übersprungen und nicht als
   offen gezählt.
 - In-game-Test **offen** → TESTLOG (Wasser-/Lava-Quellen, Eimer im Inventar, auch mit `rotation-spoof`).
-### P5-04 · Rails `todo` — Reihenfolge gerade→Kurve, Verifier-Gegencheck
+### P5-04 · Rails `done` — Reihenfolge gerade→Kurve, Verifier-Gegencheck
+
+Stand 2026-09-19: Die Form einer Schiene lässt sich nicht direkt wählen: `BaseRailBlock.getStateForPlacement` (26.2
+per `javap` nachgelesen) setzt EAST_WEST bei Blick nach Ost/West, sonst NORTH_SOUTH, danach verbindet Vanilla die neue
+Schiene mit ihren Nachbarn (Kurven, Steigungen). Umgesetzt in drei Teilen:
+- `PlacementSolver`: Regel für alle `BaseRailBlock` (auch Antriebs-, Sensor-, Aktivierungsschiene über
+  `getShapeProperty()`). Jede Nachbarfläche ist klickbar, weil die Schiene immer auf `pos` landet; ohne feste Oberseite
+  darunter `NeedsSupport(unten)`. Gerade und ansteigende Formen: Yaw entlang der Achse – neu `YawTarget.along`, das die
+  näher am Blick liegende der beiden Richtungen nimmt, statt den Spieler umdrehen zu lassen. Kurven: kein Yaw.
+  Schienen zählen als abhängig (`standsWithoutSupport` = false), bekommen also nie einen Stützblock (P5-02).
+- `WorkPlanner`: Kurven bekommen `PRIORITY_RAIL_CURVE` (90) statt 100 und kommen damit im Cluster nach den geraden
+  Stücken, an die sie sich anschließen („gerade→Kurve“).
+- Verifier-Gegencheck im `Printer`: gesendete Schienen werden gemerkt; zu Beginn jedes Durchlaufs (also auch am
+  Cluster-Ende) wird ihre Form mit dem Ziel verglichen. Hat Vanilla anders verbunden, gibt es **einmal je Position** eine
+  Chat-Zeile („Rail at x y z connected as north_south, the schematic wants east_west.“). Korrigiert wird nicht: mit
+  additive-only bleibt sie als „mismatched“ stehen, sonst plant die nächste Runde einen BREAK.
+ARCHITECTURE.md §2/§4 vorher ergänzt. In drei Tests war die Schiene das Beispiel für „keine Regel“ – dort steht jetzt
+Redstone-Staub. Build + 258 Tests grün.
+- `PlacementSolverTest` (+4): gerade Schienen gegen die Vanilla-Formel (auch Antriebsschiene), die nähere Richtung wird
+  genommen, Steigung entlang ihrer Achse und Kurve ohne Yaw, ohne Boden `NeedsSupport` auch wenn eine Seite klickbar wäre.
+- `WorkPlannerTest` (+1): die Kurve kommt nach den beiden geraden Stücken, obwohl sie am nächsten liegt.
+- `PrinterTest` (+2): falsch verbundene Schiene wird genau einmal gemeldet und nicht erneut gesetzt; richtige Form →
+  keine Meldung.
+- In-game-Test **offen** → TESTLOG (Schienenstrecke mit Kurven und Steigung aus einer Schematic).
 ### P5-05 · Profil FAST `todo` — `blocksPerTick` > 1, `rotationSpoof`, Warnung im Chat beim Aktivieren
 ### P5-06 · EasyPlace-Protokoll nutzen `todo` — wenn V2/V3 erkannt: Property-Encoding im `hitVec` laut Carpet-Protokoll (Spezifikation aus `refs/meteor-client`? nein – aus Litematica-Quelle / PaperAccurateBlockPlacement-README ableiten, in ARCHITECTURE.md dokumentieren)
 ### P5-07 · Release `todo` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
@@ -617,6 +640,10 @@ ergänzt. Build + 251 Tests grün.
   `rotation-spoof`; prüfen, dass der Server die Quelle setzt und kein Nachbarblock geflutet wird
 - Fluids: leere Eimer werden nicht wieder aufgefüllt (z. B. an einer unendlichen Quelle); jede Quelle braucht einen vollen
   Eimer aus Inventar oder Restock
+- P5-04 in-game nachholen: Schienenstrecke mit Kurven, Steigung und T-Kreuzung drucken, Gegencheck-Meldungen gegen
+  das Ergebnis im Spiel halten
+- Rails: die Reihenfolge gerade→Kurve gilt je Cluster. Liegt die Kurve in einem früheren Cluster als ihre geraden
+  Nachbarn, kann sie falsch verbinden; dann hilft nur die Meldung (additive-only) bzw. die nächste Runde
 - Multi-Account-Aufteilung von Clustern
 - Servux-Handshake selbst sprechen
 - Mining/Crafting-Beschaffung (Alto-Clef-Stil)

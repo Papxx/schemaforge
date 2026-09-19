@@ -13,8 +13,10 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.RailBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.RailShape;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -133,11 +135,12 @@ class PrinterTest {
         assertTrue(noItem.printer.clusterDone());
         assertTrue(noItem.actions.sent.isEmpty());
 
-        // Rails have no rule until P5-04.
-        Setup rail = new Setup(Map.of(new BlockPos(0, 64, 0), Blocks.RAIL.defaultBlockState()), 1);
-        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) rail.tick();
-        assertTrue(rail.printer.clusterDone());
-        assertTrue(rail.actions.sent.isEmpty());
+        // Redstone dust has no rule.
+        Setup dust = new Setup(Map.of(new BlockPos(0, 64, 0), Blocks.REDSTONE_WIRE.defaultBlockState()), 1);
+        dust.inventory.put(5, Items.REDSTONE, 64);
+        for (int i = 0; i <= Printer.MAX_ATTEMPTS; i++) dust.tick();
+        assertTrue(dust.printer.clusterDone());
+        assertTrue(dust.actions.sent.isEmpty());
     }
 
     /** P2-05: item only in the main inventory → one swap into an allowed slot (budget unit), placed in the next pass. */
@@ -300,6 +303,33 @@ class PrinterTest {
             }, _ -> {
             })), false, _ -> {
             }));
+    }
+
+    // --- P5-04 rails --------------------------------------------------------------------------------
+
+    /** Verifier cross-check: vanilla made the rail north-south, the schematic wants east-west - reported once. */
+    @Test
+    void railThatConnectedDifferentlyIsReportedOnce() {
+        BlockPos pos = new BlockPos(2, 64, 0);
+        List<String> notes = new ArrayList<>();
+        Setup s = new Setup(Map.of(pos, Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.EAST_WEST)),
+            Map.of(), new AtomicInteger(1), true, true, _ -> new Printer.Options(Optional.empty(), false, notes::add));
+        s.inventory.put(5, Items.RAIL, 16);
+        for (int i = 0; i < 6 && !s.printer.clusterDone(); i++) s.tick();
+        assertTrue(s.printer.clusterDone());
+        assertEquals(1, s.actions.sent.size(), "additive-only: the wrong rail is not placed again");
+        assertEquals(List.of("Rail at 2 64 0 connected as north_south, the schematic wants east_west."), notes);
+    }
+
+    @Test
+    void railWithTheRightShapeIsNotReported() {
+        List<String> notes = new ArrayList<>();
+        Setup s = new Setup(Map.of(new BlockPos(2, 64, 0), Blocks.RAIL.defaultBlockState()),
+            Map.of(), new AtomicInteger(1), true, true, _ -> new Printer.Options(Optional.empty(), false, notes::add));
+        s.inventory.put(5, Items.RAIL, 16);
+        for (int i = 0; i < 6 && !s.printer.clusterDone(); i++) s.tick();
+        assertEquals(1, s.actions.sent.size());
+        assertTrue(notes.isEmpty(), notes.toString());
     }
 
     // --- P5-03 fluids -------------------------------------------------------------------------------

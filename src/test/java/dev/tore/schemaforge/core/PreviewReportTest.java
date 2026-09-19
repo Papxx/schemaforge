@@ -124,15 +124,15 @@ class PreviewReportTest {
     @Test
     void unsupportedBlocksAreGroupedByReason() {
         Map<BlockPos, BlockState> states = new HashMap<>();
-        states.put(ORIGIN, Blocks.RAIL.defaultBlockState());
-        states.put(ORIGIN.east(), Blocks.RAIL.defaultBlockState());
+        states.put(ORIGIN, Blocks.REDSTONE_WIRE.defaultBlockState());
+        states.put(ORIGIN.east(), Blocks.REDSTONE_WIRE.defaultBlockState());
         states.put(ORIGIN.east(2), Blocks.OAK_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.DOUBLE));
         states.put(ORIGIN.east(3), Blocks.STONE.defaultBlockState());
         PreviewReport report = report(snapshot(states), new FakeWorld(), ENV);
 
         PreviewReport.Line last = report.lines().getLast();
         assertEquals(PreviewReport.Level.WARNING, last.level());
-        assertEquals("3 blocks the printer cannot place yet: 2 no rule for RailBlock, 1 double slab", last.text());
+        assertEquals("3 blocks the printer cannot place yet: 2 no rule for RedStoneWireBlock, 1 double slab", last.text());
     }
 
     private static PreviewReport report(SchematicSnapshot snap, WorldView world, PreviewReport.Environment env) {

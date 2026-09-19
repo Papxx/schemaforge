@@ -9,8 +9,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RailBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.RailShape;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +49,22 @@ class WorkPlannerTest {
         assertEquals(8, split.size());
         assertEquals(27, taskCount(split));
         for (int i = 0; i < split.size(); i++) assertEquals(i, split.get(i).index());
+    }
+
+    /** P5-04: straight rails first, the curve that connects them last - even when the curve is nearer. */
+    @Test
+    void curvedRailsComeAfterTheStraightOnes() {
+        Map<BlockPos, BlockState> rails = new HashMap<>();
+        rails.put(ORIGIN, Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.SOUTH_EAST));
+        rails.put(ORIGIN.east(), Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.EAST_WEST));
+        rails.put(ORIGIN.south(), Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.NORTH_SOUTH));
+        FakeWorld world = new FakeWorld();
+        for (BlockPos pos : rails.keySet()) world.set(pos.below(), Blocks.STONE.defaultBlockState());
+
+        List<BlockTask> tasks = allTasks(planner(config(5, true)).plan(snapshot(rails), world, ORIGIN));
+        assertEquals(ORIGIN, tasks.getLast().pos(), "the curve goes last");
+        assertEquals(WorkPlanner.PRIORITY_RAIL_CURVE, tasks.getLast().priority());
+        assertTrue(tasks.subList(0, 2).stream().allMatch(t -> t.priority() == WorkPlanner.PRIORITY_DEPENDENT));
     }
 
     @Test

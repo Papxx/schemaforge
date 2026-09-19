@@ -7,14 +7,19 @@ import dev.tore.schemaforge.core.view.PrintActions;
 import dev.tore.schemaforge.core.view.WorldView;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.BaseRailBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.RailShape;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -46,6 +51,9 @@ public final class Printer {
     private final PlacementLog log;
     private final Options options;
     private final Map<BlockPos, Integer> attempts = new HashMap<>();
+    /** Rails sent during this visit, checked against the world for the shape vanilla gave them (P5-04). */
+    private final Map<BlockPos, BlockState> railsSent = new LinkedHashMap<>();
+    private final Set<BlockPos> railsReported = new HashSet<>();
 
     private Optional<Cluster> cluster = Optional.empty();
     /** Open tasks of the running pass; empty = start a new pass with a refresh. */
@@ -74,6 +82,7 @@ public final class Printer {
         materials.startCluster(c);
         options.supports().ifPresent(TempSupports::reset);
         attempts.clear();
+        railsSent.clear();
         pass = List.of();
         cursor = 0;
         done = false;
@@ -84,6 +93,7 @@ public final class Printer {
     public void tick(WorldView world, PlayerView player, InventoryView inv, PrintActions actions) {
         if (cluster.isEmpty() || done) return;
         if (pass.isEmpty()) {
+            checkRails(world);
             pass = planner.refresh(cluster.get(), world).stream()
                 .filter(t -> works(t) && attempts.getOrDefault(t.pos(), 0) < MAX_ATTEMPTS)
                 .toList();
@@ -174,10 +184,29 @@ public final class Printer {
     private void sent(Step step) {
         // Fluids stay out of the log: undo mines blocks and cannot take a source back (P5-03).
         if (!step.fluid()) log.append(step.pos(), step.block(), step.temp());
+        if (!step.temp() && step.block().getBlock() instanceof BaseRailBlock) railsSent.put(step.pos(), step.block());
         if (step.temp()) {
             options.supports().ifPresent(s -> s.placed(step.pos(), step.block()));
         } else {
             placed++;
+        }
+    }
+
+    /**
+     * Verifier cross-check for rails (P5-04): vanilla connects a new rail to its neighbours, so the shape can differ
+     * from the schematic. Reported once per position; fixing it is up to the next round (break) or the player.
+     */
+    private void checkRails(WorldView world) {
+        for (Map.Entry<BlockPos, BlockState> sent : railsSent.entrySet()) {
+            BlockState target = sent.getValue();
+            BlockState now = world.getBlockState(sent.getKey());
+            if (now.getBlock() != target.getBlock() || !(target.getBlock() instanceof BaseRailBlock rail)) continue;
+            RailShape wanted = target.getValue(rail.getShapeProperty());
+            RailShape got = now.getValue(rail.getShapeProperty());
+            if (got == wanted || !railsReported.add(sent.getKey())) continue;
+            BlockPos at = sent.getKey();
+            options.notes().accept(String.format("Rail at %d %d %d connected as %s, the schematic wants %s.",
+                at.getX(), at.getY(), at.getZ(), got.getSerializedName(), wanted.getSerializedName()));
         }
     }
 

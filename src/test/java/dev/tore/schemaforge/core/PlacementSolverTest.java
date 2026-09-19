@@ -19,6 +19,8 @@ import net.minecraft.world.level.block.ButtonBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.LadderBlock;
 import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.PoweredRailBlock;
+import net.minecraft.world.level.block.RailBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.RedstoneWallTorchBlock;
 import net.minecraft.world.level.block.StandingSignBlock;
@@ -31,6 +33,7 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.RotationSegment;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.RailShape;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.BeforeAll;
@@ -168,8 +171,8 @@ class PlacementSolverTest {
     @Test
     void unknownBlocksAreUnsupported() {
         FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
-        assertInstanceOf(SolveResult.Unsupported.class, solve(solver(true), Blocks.RAIL.defaultBlockState(), floor));
-        assertEquals(Optional.of("no rule for RailBlock"), PlacementSolver.unsupportedReason(Blocks.RAIL.defaultBlockState()));
+        assertInstanceOf(SolveResult.Unsupported.class, solve(solver(true), Blocks.REDSTONE_WIRE.defaultBlockState(), floor));
+        assertEquals(Optional.of("no rule for RedStoneWireBlock"), PlacementSolver.unsupportedReason(Blocks.REDSTONE_WIRE.defaultBlockState()));
         assertEquals(Optional.empty(), PlacementSolver.unsupportedReason(STONE));
         assertInstanceOf(SolveResult.Unsupported.class,
             solve(solver(true), new BlockTask(POS, STONE, STONE, TaskKind.SKIP, 0, SkipReason.NEVER_PLACE), floor));
@@ -335,6 +338,54 @@ class PlacementSolverTest {
         for (BlockState target : targets) {
             assertInstanceOf(SolveResult.NeedsSupport.class, solve(solver(false), target, new FakeWorld()), target.toString());
         }
+    }
+
+    // --- P5-04 rails --------------------------------------------------------------------------------
+
+    /** Vanilla BaseRailBlock.getStateForPlacement: EAST_WEST when the player faces east or west, else NORTH_SOUTH. */
+    private static RailShape vanillaInitialShape(PlacementPlan plan) {
+        Direction facing = Direction.fromYRot(plan.yaw());
+        return facing == Direction.EAST || facing == Direction.WEST ? RailShape.EAST_WEST : RailShape.NORTH_SOUTH;
+    }
+
+    @Test
+    void straightRailsLookAlongTheirAxis() {
+        FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
+        for (RailShape shape : new RailShape[]{RailShape.NORTH_SOUTH, RailShape.EAST_WEST}) {
+            PlacementPlan plan = ok(solver(true), Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, shape), floor);
+            assertTrue(plan.requiresRealRotation(), shape.toString());
+            assertEquals(shape, vanillaInitialShape(plan), "yaw " + plan.yaw());
+            assertEquals(Items.RAIL, plan.handItem());
+        }
+        PlacementPlan powered = ok(solver(true),
+            Blocks.POWERED_RAIL.defaultBlockState().setValue(PoweredRailBlock.SHAPE, RailShape.EAST_WEST), floor);
+        assertEquals(RailShape.EAST_WEST, vanillaInitialShape(powered));
+    }
+
+    /** Looking south, a north-south rail keeps the look direction instead of turning round to face north. */
+    @Test
+    void straightRailTakesTheCloserOfBothDirections() {
+        PlacementPlan plan = ok(solver(true), Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.NORTH_SOUTH),
+            new FakeWorld().set(POS.below(), STONE));
+        assertEquals(Direction.SOUTH, Direction.fromYRot(plan.yaw()));
+    }
+
+    @Test
+    void ascendingRailLooksAlongItsSlopeAndCurvesLeaveTheYawAlone() {
+        FakeWorld floor = new FakeWorld().set(POS.below(), STONE);
+        PlacementPlan up = ok(solver(true), Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.ASCENDING_EAST), floor);
+        assertEquals(RailShape.EAST_WEST, vanillaInitialShape(up));
+        PlacementPlan curve = ok(solver(true), Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.SOUTH_EAST), floor);
+        assertFalse(curve.requiresRealRotation(), "the neighbours decide a curve");
+    }
+
+    @Test
+    void railNeedsAFloorEvenWhenASideCanBeClicked() {
+        BlockState rail = Blocks.RAIL.defaultBlockState();
+        assertEquals(new SolveResult.NeedsSupport(POS.below()), solve(solver(true), rail, new FakeWorld().set(POS.west(), STONE)));
+        PlacementPlan side = ok(solver(true), rail, new FakeWorld().set(POS.below(), STONE).set(POS.west(), STONE));
+        assertEquals(POS, side.clickPos().relative(side.clickFace()));
+        assertFalse(PlacementSolver.standsWithoutSupport(rail), "a rail drops without its floor");
     }
 
     // --- P5-03 fluids -------------------------------------------------------------------------------

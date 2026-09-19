@@ -10,6 +10,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
+import net.minecraft.world.level.block.BaseRailBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ButtonBlock;
 import net.minecraft.world.level.block.CarpetBlock;
@@ -53,7 +54,7 @@ import java.util.function.Predicate;
 
 /**
  * BlockState to PlacementPlan (click face, hit point, look direction, hand item).
- * Base block classes since P2-02, dependent blocks since P2-04 (rules in ARCHITECTURE.md §4, derived from vanilla 26.2
+ * Base block classes since P2-02, dependent blocks since P2-04, rails since P5-04 (rules in ARCHITECTURE.md §4, derived from vanilla 26.2
  * {@code getStateForPlacement}).
  */
 public final class PlacementSolver {
@@ -215,15 +216,28 @@ public final class PlacementSolver {
 
     private enum HitHeight { MIDDLE, LOWER, UPPER }
 
-    /** Yaw the player must look at: {@code center} ± {@code margin} degrees. */
-    private record YawTarget(float center, float margin) {
+    /**
+     * Yaw the player must look at: {@code center} ± {@code margin} degrees; with {@code eitherWay} the opposite
+     * direction counts as well.
+     */
+    private record YawTarget(float center, float margin, boolean eitherWay) {
+        YawTarget(float center, float margin) {
+            this(center, margin, false);
+        }
+
         /** The player looks in {@code facing} ({@code Direction.fromYRot}). */
         static Optional<YawTarget> facing(Direction facing) {
             return Optional.of(new YawTarget(facing.toYRot(), QUADRANT_MARGIN));
         }
 
+        /** The player looks along the axis of {@code direction}, whichever way is closer (P5-04, rails). */
+        static Optional<YawTarget> along(Direction direction) {
+            return Optional.of(new YawTarget(direction.toYRot(), QUADRANT_MARGIN, true));
+        }
+
         float clamp(float yaw) {
-            return center + Mth.clamp(Mth.wrapDegrees(yaw - center), -margin, margin);
+            float c = eitherWay && Math.abs(Mth.wrapDegrees(yaw - center)) > 90f ? center + 180f : center;
+            return c + Mth.clamp(Mth.wrapDegrees(yaw - c), -margin, margin);
         }
     }
 
@@ -306,6 +320,16 @@ public final class PlacementSolver {
             float yaw = RotationSegment.convertToDegrees(target.getValue(StandingSignBlock.ROTATION)) - 180f;
             return Optional.of(Rule.attached(face -> face == Direction.UP, Optional.of(new YawTarget(yaw, SEGMENT_MARGIN))));
         }
+        if (block instanceof BaseRailBlock rail) {
+            // The rail lands on pos whatever face is clicked; vanilla sets NORTH_SOUTH or EAST_WEST from the look
+            // direction and then connects it to neighbouring rails, which also makes curves and slopes (P5-04).
+            Optional<YawTarget> yaw = switch (target.getValue(rail.getShapeProperty())) {
+                case NORTH_SOUTH, ASCENDING_NORTH, ASCENDING_SOUTH -> YawTarget.along(Direction.SOUTH);
+                case EAST_WEST, ASCENDING_EAST, ASCENDING_WEST -> YawTarget.along(Direction.EAST);
+                case SOUTH_EAST, SOUTH_WEST, NORTH_WEST, NORTH_EAST -> Optional.empty();
+            };
+            return Optional.of(new Rule(_ -> true, HitHeight.MIDDLE, _ -> yaw, false, Optional.empty()));
+        }
         return Optional.empty();
     }
 
@@ -313,6 +337,10 @@ public final class PlacementSolver {
     private static Optional<SolveResult> blocked(BlockState target, BlockPos pos, WorldView world) {
         Block block = target.getBlock();
         if (block instanceof CarpetBlock && world.getBlockState(pos.below()).isAir()) {
+            return Optional.of(new SolveResult.NeedsSupport(pos.below()));
+        }
+        if (block instanceof BaseRailBlock
+            && !world.getBlockState(pos.below()).isFaceSturdy(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, Direction.UP)) {
             return Optional.of(new SolveResult.NeedsSupport(pos.below()));
         }
         if (block instanceof DoorBlock && target.getValue(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
