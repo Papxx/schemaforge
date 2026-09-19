@@ -3,12 +3,14 @@
   "id": "schemaforge",
   "version": "${version}",
   "name": "SchemaForge",
-  "description": "Litematica printer, container restock and Baritone navigation as a Meteor Client addon.",
+  "description": "Prints Litematica schematics into the world: packet-paced printer, Baritone navigation between work clusters and material restock from known containers. A Meteor Client addon.",
   "authors": [
     "Papxx"
   ],
   "contact": {
-    "sources": "https://github.com/Papxx/schemaforge"
+    "homepage": "https://github.com/Papxx/schemaforge",
+    "sources": "https://github.com/Papxx/schemaforge",
+    "issues": "https://github.com/Papxx/schemaforge/issues"
   },
   "license": "GPL-3.0-only",
   "icon": "assets/schemaforge/icon.png",

@@ -585,7 +585,7 @@ Chat-Zeile beim Start. `Printer.Options.protocol` (Zusatzkonstruktor ohne Protok
   Stein bleibt unkodiert; Tür unter V2 mit echter Rotation.
 - In-game-Test **offen** → TESTLOG: braucht einen Server mit Carpet (`accurateBlockPlacement true`) bzw. Servux; auf einem
   Vanilla-Server meldet Litematica kein V2/V3 und es ändert sich nichts.
-### P5-07 · Release `todo` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
+### P5-07 · Release `in_progress` — README, Modrinth-Metadaten, CI `dev_build.yml` grün, GPL-Header
 
 ---
 
